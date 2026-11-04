@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { ParticipantSession, StimulusResponse, Stimulus } from '../../types';
-import { storageAdapter } from '../../services/storage/storageAdapter';
+import { storageAdapter, evaluateSessionStatus } from '../../services/storage/storageAdapter';
 import { AdminLayout } from '../../components/layout/AdminLayout';
 import {
   Users,
@@ -49,6 +49,13 @@ export const ResponsesQualityPage: React.FC = () => {
     const unsubResponses = storageAdapter.subscribeResponses(currentProjectId, undefined, setResponses);
     const unsubStimuli = storageAdapter.subscribeStimuli(currentProjectId, setStimuli);
 
+    // Auto-reconcile session statuses in background to heal any session where responses exist
+    if (currentProjectId) {
+      storageAdapter.reconcileSessions(currentProjectId).catch(err => {
+        console.warn('Auto-reconciliation error:', err);
+      });
+    }
+
     return () => {
       unsubSessions();
       unsubResponses();
@@ -74,18 +81,40 @@ export const ResponsesQualityPage: React.FC = () => {
     }
   };
 
+  // Map of session evaluations for fast lookup and consistent metrics
+  const sessionEvaluations = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof evaluateSessionStatus>>();
+    sessions.forEach(s => {
+      const sResps = responses.filter(r => r.sessionId === s.id);
+      map.set(s.id, evaluateSessionStatus(s, sResps, stimuli.length));
+    });
+    return map;
+  }, [sessions, responses, stimuli.length]);
+
+  const getSessionEval = (sessionId: string) => {
+    return sessionEvaluations.get(sessionId) || {
+      isCompleted: false,
+      isPartial: false,
+      isEmpty: true,
+      answeredCount: 0,
+      totalAssocs: 0,
+      completedAt: undefined,
+      durationSeconds: undefined,
+    };
+  };
+
   // Check if a session has no responses or 0 associations
   const isSessionEmpty = (sessionId: string) => {
-    const sResps = responses.filter(r => r.sessionId === sessionId);
-    if (sResps.length === 0) return true;
-    const totalAssoc = sResps.reduce((acc, r) => acc + (r.associations?.length || 0), 0);
-    return totalAssoc === 0;
+    return getSessionEval(sessionId).isEmpty;
   };
 
   // Overall Quality Metrics
   const totalSessions = sessions.length;
-  const emptySessions = sessions.filter(s => isSessionEmpty(s.id));
-  const completedSessions = sessions.filter(s => s.status === 'completed' && !s.flags?.excludedByAdmin && !isSessionEmpty(s.id));
+  const emptySessions = sessions.filter(s => getSessionEval(s.id).isEmpty);
+  const completedSessions = sessions.filter(s => {
+    const ev = getSessionEval(s.id);
+    return ev.isCompleted && !s.flags?.excludedByAdmin;
+  });
   const completionRate = totalSessions > 0 ? (completedSessions.length / totalSessions) * 100 : 0;
 
   const totalWordsProduced = responses.reduce((acc, r) => acc + (r.associations?.length || 0), 0);
@@ -101,10 +130,11 @@ export const ResponsesQualityPage: React.FC = () => {
     const matchesSearch = s.anonymousId.toLowerCase().includes(searchTerm.toLowerCase());
     if (!matchesSearch) return false;
 
-    if (statusFilter === 'completed') return s.status === 'completed' && !s.flags?.excludedByAdmin && !isSessionEmpty(s.id);
+    const ev = getSessionEval(s.id);
+    if (statusFilter === 'completed') return ev.isCompleted && !s.flags?.excludedByAdmin;
     if (statusFilter === 'flagged') return s.flags?.suspiciousTiming || s.flags?.visibilityLossCount > 2;
     if (statusFilter === 'excluded') return s.flags?.excludedByAdmin;
-    if (statusFilter === 'empty') return isSessionEmpty(s.id);
+    if (statusFilter === 'empty') return ev.isEmpty;
     return true;
   });
 
@@ -353,11 +383,14 @@ export const ResponsesQualityPage: React.FC = () => {
                 ) : (
                   filteredSessions.map(session => {
                     const sessionResponses = responses.filter(r => r.sessionId === session.id);
+                    const ev = getSessionEval(session.id);
                     const isExpanded = expandedSessionId === session.id;
                     const isExcluded = session.flags?.excludedByAdmin;
-                    const isEmpty = isSessionEmpty(session.id);
+                    const isEmpty = ev.isEmpty;
+                    const isCompleted = ev.isCompleted;
+                    const isPartial = ev.isPartial;
                     const hasFlags = session.flags?.visibilityLossCount > 2 || session.flags?.suspiciousTiming;
-                    const totalAssocs = sessionResponses.reduce((acc, r) => acc + (r.associations?.length || 0), 0);
+                    const totalAssocs = ev.totalAssocs;
 
                     return (
                       <React.Fragment key={session.id}>
@@ -367,12 +400,19 @@ export const ResponsesQualityPage: React.FC = () => {
                             <div className="flex items-center gap-2">
                               <span
                                 className={`w-2.5 h-2.5 rounded-full ${
-                                  session.status === 'completed'
+                                  isCompleted
                                     ? 'bg-emerald-500'
-                                    : session.status === 'in_progress'
+                                    : isPartial
                                     ? 'bg-blue-500'
-                                    : 'bg-amber-400'
+                                    : 'bg-slate-400'
                                 }`}
+                                title={
+                                  isCompleted
+                                    ? 'Finalizado y completo'
+                                    : isPartial
+                                    ? `Parcial (${ev.answeredCount}/${stimuli.length || 1})`
+                                    : 'Sin respuestas'
+                                }
                               />
                               <span>{session.anonymousId}</span>
                               {isExcluded && (
@@ -380,11 +420,15 @@ export const ResponsesQualityPage: React.FC = () => {
                                   Excluido
                                 </span>
                               )}
-                              {isEmpty && (
+                              {isEmpty ? (
                                 <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold font-sans">
                                   Sin respuestas
                                 </span>
-                              )}
+                              ) : isPartial ? (
+                                <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold font-sans">
+                                  Parcial ({ev.answeredCount}/{stimuli.length || 1})
+                                </span>
+                              ) : null}
                             </div>
                           </td>
 
@@ -395,13 +439,17 @@ export const ResponsesQualityPage: React.FC = () => {
                                 <Calendar className="w-3.5 h-3.5 text-primary-600" />
                                 <span>{formatFullDateTime(session.startedAt)}</span>
                               </div>
-                              {session.completedAt ? (
+                              {ev.completedAt ? (
                                 <div className="flex items-center gap-1.5 text-emerald-700 text-[10.5px]">
                                   <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                                  <span>Fin: {formatFullDateTime(session.completedAt)}</span>
+                                  <span>Fin: {formatFullDateTime(ev.completedAt)}</span>
                                 </div>
+                              ) : isPartial ? (
+                                <span className="text-[10px] text-amber-600 font-medium italic">
+                                  En curso / Parcial ({ev.answeredCount}/{stimuli.length || 1})
+                                </span>
                               ) : (
-                                <span className="text-[10px] text-slate-400 italic">En curso / Incompleto</span>
+                                <span className="text-[10px] text-slate-400 italic">Sin respuestas registradas</span>
                               )}
                             </div>
                           </td>
@@ -410,14 +458,18 @@ export const ResponsesQualityPage: React.FC = () => {
                           <td className="py-3.5 px-4">
                             <span
                               className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                                session.status === 'completed'
+                                isCompleted
                                   ? 'bg-emerald-100 text-emerald-800'
-                                  : session.status === 'in_progress'
+                                  : isPartial
                                   ? 'bg-blue-100 text-blue-800'
-                                  : 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-600'
                               }`}
                             >
-                              {session.status === 'completed' ? 'Finalizado' : 'En progreso'}
+                              {isCompleted
+                                ? 'Finalizado'
+                                : isPartial
+                                ? `Parcial (${ev.answeredCount}/${stimuli.length || 1})`
+                                : 'Sin respuestas'}
                             </span>
                           </td>
 
@@ -427,9 +479,13 @@ export const ResponsesQualityPage: React.FC = () => {
                               <div className="flex items-center gap-1.5 text-slate-600">
                                 <Clock className="w-3.5 h-3.5 text-slate-400" />
                                 <span>
-                                  {session.totalDurationMs
-                                    ? `${(session.totalDurationMs / 1000).toFixed(0)} seg total`
-                                    : 'En curso'}
+                                  {ev.durationSeconds
+                                    ? `${ev.durationSeconds} seg total`
+                                    : isCompleted
+                                    ? 'Finalizado'
+                                    : isPartial
+                                    ? 'En curso'
+                                    : '—'}
                                 </span>
                               </div>
                               {hasFlags && (
@@ -448,7 +504,7 @@ export const ResponsesQualityPage: React.FC = () => {
                           {/* Columna 5: Respuestas */}
                           <td className="py-3.5 px-4">
                             <span className="font-bold text-slate-900">
-                              {sessionResponses.length}
+                              {ev.answeredCount}
                             </span>
                             <span className="text-slate-400 font-normal"> / {stimuli.length} estímulos</span>
                             <div className="text-[11px] text-slate-500">

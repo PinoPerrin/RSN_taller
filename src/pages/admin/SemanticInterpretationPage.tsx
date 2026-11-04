@@ -90,6 +90,10 @@ export const SemanticInterpretationPage: React.FC = () => {
       }
     });
 
+    if (currentProjectId) {
+      storageAdapter.reconcileSessions(currentProjectId).catch(() => {});
+    }
+
     return () => {
       unsubStim();
       unsubSess();
@@ -102,7 +106,13 @@ export const SemanticInterpretationPage: React.FC = () => {
   // Filter active completed responses from non-excluded participants
   const activeResponses = useMemo(() => {
     const activeSessionIds = new Set(
-      sessions.filter(s => s.status === 'completed' && !s.flags?.excludedByAdmin).map(s => s.id)
+      sessions
+        .filter(
+          s => !s.flags?.excludedByAdmin && (
+            s.status === 'completed' || responses.some(r => r.sessionId === s.id && (r.associations?.length || 0) > 0)
+          )
+        )
+        .map(s => s.id)
     );
     return responses.filter(r => activeSessionIds.has(r.sessionId));
   }, [responses, sessions]);

@@ -45,6 +45,10 @@ export const ExportsReportPage: React.FC = () => {
     const unsubResp = storageAdapter.subscribeResponses(currentProjectId, undefined, setResponses);
     const unsubRules = storageAdapter.subscribeRules(currentProjectId, setRules);
 
+    if (currentProjectId) {
+      storageAdapter.reconcileSessions(currentProjectId).catch(() => {});
+    }
+
     return () => {
       unsubStim();
       unsubSess();
@@ -53,7 +57,11 @@ export const ExportsReportPage: React.FC = () => {
     };
   }, [currentProjectId]);
 
-  const activeSessions = sessions.filter(s => s.status === 'completed' && !s.flags?.excludedByAdmin);
+  const activeSessions = sessions.filter(
+    s => !s.flags?.excludedByAdmin && (
+      s.status === 'completed' || responses.some(r => r.sessionId === s.id && (r.associations?.length || 0) > 0)
+    )
+  );
   const activeSessionIds = new Set(activeSessions.map(s => s.id));
   const activeResponses = responses.filter(r => activeSessionIds.has(r.sessionId));
 

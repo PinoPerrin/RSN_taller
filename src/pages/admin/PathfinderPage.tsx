@@ -92,6 +92,10 @@ export const PathfinderPage: React.FC = () => {
     const unsubResp = storageAdapter.subscribeResponses(currentProjectId, undefined, setResponses);
     const unsubRules = storageAdapter.subscribeRules(currentProjectId, setRules);
 
+    if (currentProjectId) {
+      storageAdapter.reconcileSessions(currentProjectId).catch(() => {});
+    }
+
     return () => {
       unsubStim();
       unsubSess();
@@ -102,8 +106,12 @@ export const PathfinderPage: React.FC = () => {
 
   // Filter valid completed responses with useMemo to avoid recreation on every render
   const activeSessions = useMemo(() => {
-    return sessions.filter(s => s.status === 'completed' && !s.flags?.excludedByAdmin);
-  }, [sessions]);
+    return sessions.filter(
+      s => !s.flags?.excludedByAdmin && (
+        s.status === 'completed' || responses.some(r => r.sessionId === s.id && (r.associations?.length || 0) > 0)
+      )
+    );
+  }, [sessions, responses]);
 
   const activeSessionIds = useMemo(() => {
     return new Set(activeSessions.map(s => s.id));

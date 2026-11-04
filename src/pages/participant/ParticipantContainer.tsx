@@ -240,6 +240,21 @@ export const ParticipantContainer: React.FC = () => {
     // Save response securely
     await storageAdapter.submitResponse(responseRecord);
 
+    // If this was the last stimulus, mark session completed in database
+    if (currentStimulusIndex + 1 >= stimuli.length) {
+      const completedAt = new Date().toISOString();
+      const totalDurationMs = Math.max(1000, Date.now() - new Date(session.startedAt).getTime());
+      try {
+        await storageAdapter.completeSession(session.id, {
+          projectId: project.id,
+          completedAt,
+          totalDurationMs,
+        });
+      } catch (e) {
+        console.warn('Error completing session in storage:', e);
+      }
+    }
+
     handleAdvanceStimulus();
   };
 

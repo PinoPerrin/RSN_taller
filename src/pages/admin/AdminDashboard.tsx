@@ -37,6 +37,8 @@ export const AdminDashboard: React.FC = () => {
     const unsubSessions = storageAdapter.subscribeSessions(activeProject.id, setSessions);
     const unsubResponses = storageAdapter.subscribeResponses(activeProject.id, undefined, setResponses);
 
+    storageAdapter.reconcileSessions(activeProject.id).catch(() => {});
+
     return () => {
       unsubSessions();
       unsubResponses();
@@ -46,9 +48,11 @@ export const AdminDashboard: React.FC = () => {
   const totalProjects = projects.length;
   const activeProjects = projects.filter(p => p.status === 'published').length;
   const closedProjects = projects.filter(p => p.status === 'closed' || p.status === 'archived').length;
-  const completedSessions = sessions.filter(s => s.status === 'completed').length;
+  const completedSessions = sessions.filter(s =>
+    s.status === 'completed' || responses.some(r => r.sessionId === s.id && (r.associations?.length || 0) > 0)
+  ).length;
   const initiatedSessions = sessions.length;
-  const incompleteSessions = sessions.filter(s => s.status !== 'completed').length;
+  const incompleteSessions = Math.max(0, initiatedSessions - completedSessions);
 
   const lastResponse = responses.length > 0 ? responses[responses.length - 1] : null;
 

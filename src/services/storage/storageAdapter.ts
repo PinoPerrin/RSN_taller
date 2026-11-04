@@ -995,6 +995,123 @@ export const storageAdapter = {
   },
 
   /**
+   * Explicitly complete a participant session with timestamp and total duration
+   */
+  async completeSession(
+    sessionId: string,
+    data: {
+      projectId?: string;
+      completedAt?: string;
+      totalDurationMs?: number;
+    }
+  ): Promise<void> {
+    const completedAt = data.completedAt || new Date().toISOString();
+    const updatePayload: Record<string, any> = {
+      status: 'completed',
+      completedAt,
+    };
+    if (data.totalDurationMs !== undefined && data.totalDurationMs > 0) {
+      updatePayload.totalDurationMs = data.totalDurationMs;
+    }
+
+    // 1. Update in Firestore
+    const pId = data.projectId || INITIAL_PROJECT.id;
+    if (isFirebaseConfigured && db && pId) {
+      try {
+        await ensureAnonymousAuth();
+        const sessRef = doc(db, `projects/${pId}/sessions`, sessionId);
+        await withTimeout(updateDoc(sessRef, updatePayload));
+      } catch (err) {
+        console.warn('Firestore completeSession error, saving locally:', err);
+      }
+    }
+
+    // 2. Update locally
+    const sessions = localDB.getSessions();
+    const session = sessions.find(s => s.id === sessionId);
+    if (session) {
+      session.status = 'completed';
+      session.completedAt = completedAt;
+      if (data.totalDurationMs !== undefined && data.totalDurationMs > 0) {
+        session.totalDurationMs = data.totalDurationMs;
+      }
+      localDB.saveSessions(sessions);
+    }
+  },
+
+  /**
+   * Reconcile participant sessions: auto-heals any session that has responses saved
+   * but whose status was left as 'started' or 'in_progress', updating both Firestore and localDB.
+   */
+  async reconcileSessions(projectId: string): Promise<number> {
+    const pId = projectId || INITIAL_PROJECT.id;
+    let healedCount = 0;
+
+    try {
+      let allSessions: ParticipantSession[] = [];
+      let allResponses: StimulusResponse[] = [];
+
+      if (isFirebaseConfigured && db && pId) {
+        try {
+          await ensureAnonymousAuth();
+          const [sessSnap, respSnap] = await Promise.all([
+            withTimeout(getDocs(collection(db, `projects/${pId}/sessions`))),
+            withTimeout(getDocs(collection(db, `projects/${pId}/responses`))),
+          ]);
+          allSessions = sessSnap.docs.map(d => ({ ...(d.data() as ParticipantSession), id: d.id }));
+          allResponses = respSnap.docs.map(d => ({ ...(d.data() as StimulusResponse), id: d.id }));
+        } catch {
+          allSessions = localDB.getSessions().filter(s => s.projectId === pId);
+          allResponses = localDB.getResponses().filter(r => r.projectId === pId);
+        }
+      } else {
+        allSessions = localDB.getSessions().filter(s => s.projectId === pId);
+        allResponses = localDB.getResponses().filter(r => r.projectId === pId);
+      }
+
+      // Group responses by sessionId
+      const responsesBySession = new Map<string, StimulusResponse[]>();
+      allResponses.forEach(r => {
+        if (!r.sessionId) return;
+        const list = responsesBySession.get(r.sessionId) || [];
+        list.push(r);
+        responsesBySession.set(r.sessionId, list);
+      });
+
+      for (const s of allSessions) {
+        const sResps = responsesBySession.get(s.id) || [];
+        const validResps = sResps.filter(r => (r.associations?.length || 0) > 0);
+
+        // If session has valid responses but is not marked completed or missing completedAt
+        if (validResps.length > 0 && (s.status !== 'completed' || !s.completedAt)) {
+          const latestRespTime = Math.max(
+            ...validResps.map(r => new Date(r.completedAt || 0).getTime()).filter(t => !isNaN(t) && t > 0)
+          );
+          const computedCompletedAt = latestRespTime > 0
+            ? new Date(latestRespTime).toISOString()
+            : s.completedAt || new Date().toISOString();
+
+          let computedDuration = s.totalDurationMs;
+          if (!computedDuration && s.startedAt) {
+            computedDuration = Math.max(1000, new Date(computedCompletedAt).getTime() - new Date(s.startedAt).getTime());
+          }
+
+          await this.completeSession(s.id, {
+            projectId: pId,
+            completedAt: computedCompletedAt,
+            totalDurationMs: computedDuration,
+          });
+          healedCount++;
+        }
+      }
+    } catch (err) {
+      console.warn('Reconcile sessions error:', err);
+    }
+
+    return healedCount;
+  },
+
+  /**
    * Delete a participant session and all its associated responses permanently
    */
   async deleteSession(sessionId: string, projectId: string): Promise<void> {
@@ -1224,3 +1341,82 @@ export const storageAdapter = {
     });
   },
 };
+
+/**
+ * Evaluates the real-time completion state of a participant session based on empirical data
+ */
+export function evaluateSessionStatus(
+  session: ParticipantSession,
+  sessionResponses: StimulusResponse[],
+  totalStimuliCount: number
+): {
+  isCompleted: boolean;
+  isPartial: boolean;
+  isEmpty: boolean;
+  answeredCount: number;
+  totalAssocs: number;
+  completedAt?: string;
+  durationSeconds?: number;
+} {
+  const validResponses = sessionResponses.filter(r => (r.associations?.length || 0) > 0);
+  const totalAssocs = validResponses.reduce((acc, r) => acc + (r.associations?.length || 0), 0);
+  const answeredStimuliIds = new Set(validResponses.map(r => r.stimulusId));
+  const answeredCount = answeredStimuliIds.size > 0 ? answeredStimuliIds.size : validResponses.length;
+
+  const isEmpty = validResponses.length === 0;
+
+  // A session is completed if:
+  // 1. It explicitly has status 'completed' and is not empty, OR
+  // 2. It answered all configured stimuli (answeredCount >= totalStimuliCount and totalStimuliCount > 0), OR
+  // 3. totalStimuliCount <= 1 and answeredCount >= 1
+  const isCompleted = !isEmpty && (
+    session.status === 'completed' ||
+    (totalStimuliCount > 0 && answeredCount >= totalStimuliCount) ||
+    (totalStimuliCount <= 1 && answeredCount >= 1)
+  );
+
+  const isPartial = !isEmpty && !isCompleted && answeredCount > 0;
+
+  // Derive completedAt
+  let completedAt = session.completedAt;
+  if (!completedAt && validResponses.length > 0) {
+    const validTimes = validResponses
+      .map(r => new Date(r.completedAt || 0).getTime())
+      .filter(t => !isNaN(t) && t > 0);
+    if (validTimes.length > 0) {
+      completedAt = new Date(Math.max(...validTimes)).toISOString();
+    }
+  }
+
+  // Derive durationSeconds
+  let durationSeconds = session.totalDurationMs && session.totalDurationMs > 0
+    ? Math.round(session.totalDurationMs / 1000)
+    : undefined;
+
+  if (!durationSeconds && session.startedAt && completedAt) {
+    const diff = new Date(completedAt).getTime() - new Date(session.startedAt).getTime();
+    if (diff > 0) {
+      durationSeconds = Math.round(diff / 1000);
+    }
+  }
+
+  if (!durationSeconds && validResponses.length > 0) {
+    const sumMs = validResponses.reduce(
+      (acc, r) => acc + (r.totalGenerationTimeMs || 0) + (r.rankingTimeMs || 0),
+      0
+    );
+    if (sumMs > 0) {
+      durationSeconds = Math.round(sumMs / 1000);
+    }
+  }
+
+  return {
+    isCompleted,
+    isPartial,
+    isEmpty,
+    answeredCount,
+    totalAssocs,
+    completedAt,
+    durationSeconds,
+  };
+}
