@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Project, Stimulus, RawAssociation, ParticipantSession, StimulusResponse } from '../../types';
 import { storageAdapter } from '../../services/storage/storageAdapter';
+import { ensureAnonymousAuth } from '../../services/firebase';
 import { WelcomePage } from './WelcomePage';
 import { InstructionsPage } from './InstructionsPage';
 import { GenerationPhase } from './GenerationPhase';
@@ -39,6 +40,7 @@ export const ParticipantContainer: React.FC = () => {
 
     const loadData = async () => {
       try {
+        await ensureAnonymousAuth();
         const proj = await storageAdapter.getProject(projectId);
         if (!proj) {
           setError('El estudio o proyecto solicitado no existe.');
@@ -48,17 +50,28 @@ export const ParticipantContainer: React.FC = () => {
 
         setProject(proj);
 
-        // Subscribe to stimuli
-        const unsubscribe = storageAdapter.subscribeStimuli(proj.id, stimList => {
-          let list = [...stimList];
-          if (proj.settings.randomizeStimuli) {
-            // Deterministic pseudo-random shuffle per session
-            list.sort(() => Math.random() - 0.5);
-          } else {
-            list.sort((a, b) => a.order - b.order);
+        // Fetch stimuli explicitly before ending loading state to avoid premature "Sin conceptos registrados"
+        const stimList = await storageAdapter.getStimuli(proj.id);
+        let list = [...stimList];
+        if (proj.settings?.randomizeStimuli) {
+          list.sort(() => Math.random() - 0.5);
+        } else {
+          list.sort((a, b) => (a.order || 0) - (b.order || 0));
+        }
+        setStimuli(list);
+        setLoading(false);
+
+        // Subscribe to stimuli for subsequent real-time changes
+        const unsubscribe = storageAdapter.subscribeStimuli(proj.id, updatedList => {
+          if (updatedList && updatedList.length > 0) {
+            let sorted = [...updatedList];
+            if (proj.settings?.randomizeStimuli) {
+              sorted.sort(() => Math.random() - 0.5);
+            } else {
+              sorted.sort((a, b) => (a.order || 0) - (b.order || 0));
+            }
+            setStimuli(sorted);
           }
-          setStimuli(list);
-          setLoading(false);
         });
 
         // Initialize Anonymous Session
@@ -159,7 +172,28 @@ export const ParticipantContainer: React.FC = () => {
     );
   }
 
-  const currentStimulus = stimuli[currentStimulusIndex];
+  // Guard: Verify study has at least one stimulus configured
+  if (stimuli.length === 0) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center max-w-sm mx-auto">
+        <div className="w-14 h-14 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mb-4">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <h1 className="text-xl font-bold text-slate-900 mb-1">Sin conceptos registrados</h1>
+        <p className="text-xs text-slate-600 mb-6">
+          Este estudio aún no tiene palabras estímulo o conceptos configurados por el administrador.
+        </p>
+        <button
+          onClick={() => navigate('/')}
+          className="px-5 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-bold"
+        >
+          Volver al inicio
+        </button>
+      </div>
+    );
+  }
+
+  const currentStimulus = stimuli[currentStimulusIndex] || stimuli[0];
 
   // Stage Transitions
   const handleStartFromWelcome = () => {
@@ -167,6 +201,10 @@ export const ParticipantContainer: React.FC = () => {
   };
 
   const handleStartFromInstructions = () => {
+    if (!stimuli || stimuli.length === 0) {
+      setError('No hay conceptos registrados para este estudio.');
+      return;
+    }
     setCurrentStage('generation');
   };
 
@@ -228,32 +266,47 @@ export const ParticipantContainer: React.FC = () => {
 
       {currentStage === 'instructions' && (
         <InstructionsPage
-          timeLimitSeconds={currentStimulus?.timeLimitSeconds || project.settings.timeLimitSeconds}
-          maxAssociations={currentStimulus?.maxAssociations || project.settings.maxAssociations}
+          timeLimitSeconds={Math.max(10, currentStimulus?.timeLimitSeconds || project.settings?.timeLimitSeconds || 60)}
+          maxAssociations={Math.max(1, currentStimulus?.maxAssociations || project.settings?.maxAssociations || 10)}
           onProceed={handleStartFromInstructions}
         />
       )}
 
-      {currentStage === 'generation' && currentStimulus && (
-        <GenerationPhase
-          key={currentStimulus.id}
-          stimulus={currentStimulus}
-          currentStimulusIndex={currentStimulusIndex}
-          totalStimuli={stimuli.length}
-          maxWords={currentStimulus.maxAssociations || project.settings.maxAssociations}
-          timeLimitSeconds={currentStimulus.timeLimitSeconds || project.settings.timeLimitSeconds}
-          onComplete={handleGenerationComplete}
-        />
+      {currentStage === 'generation' && (
+        currentStimulus ? (
+          <GenerationPhase
+            key={currentStimulus.id || `stim-${currentStimulusIndex}`}
+            stimulus={currentStimulus}
+            currentStimulusIndex={currentStimulusIndex}
+            totalStimuli={stimuli.length}
+            maxWords={Math.max(1, currentStimulus.maxAssociations || project.settings?.maxAssociations || 10)}
+            timeLimitSeconds={Math.max(10, currentStimulus.timeLimitSeconds || project.settings?.timeLimitSeconds || 60)}
+            onComplete={handleGenerationComplete}
+          />
+        ) : (
+          <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+            <Loader2 className="w-8 h-8 text-primary-600 animate-spin mb-3" />
+            <p className="text-sm font-semibold text-slate-600">Cargando concepto...</p>
+          </div>
+        )
       )}
 
-      {currentStage === 'ranking' && currentStimulus && (
-        <RankingPhase
-          stimulus={currentStimulus}
-          associations={currentGeneratedAssocs}
-          currentStimulusIndex={currentStimulusIndex}
-          totalStimuli={stimuli.length}
-          onConfirm={handleRankingConfirm}
-        />
+      {currentStage === 'ranking' && (
+        currentStimulus ? (
+          <RankingPhase
+            key={`ranking-${currentStimulus.id}-${currentStimulusIndex}`}
+            stimulus={currentStimulus}
+            associations={currentGeneratedAssocs}
+            currentStimulusIndex={currentStimulusIndex}
+            totalStimuli={stimuli.length}
+            onConfirm={handleRankingConfirm}
+          />
+        ) : (
+          <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+            <Loader2 className="w-8 h-8 text-primary-600 animate-spin mb-3" />
+            <p className="text-sm font-semibold text-slate-600">Cargando jerarquización...</p>
+          </div>
+        )
       )}
 
       {currentStage === 'thankyou' && <ThankYouPage project={project} />}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Project, Stimulus, StimulusResponse, NormalizationRule, DefinidoraStats } from '../../types';
+import { Project, Stimulus, StimulusResponse, NormalizationRule, DefinidoraStats, ParticipantSession } from '../../types';
 import { storageAdapter } from '../../services/storage/storageAdapter';
 import { calculateTraditionalRSN } from '../../services/math/rsnTraditional';
 import { AdminLayout } from '../../components/layout/AdminLayout';
@@ -43,6 +43,7 @@ export const TraditionalRSNPage: React.FC = () => {
   const [stimuli, setStimuli] = useState<Stimulus[]>([]);
   const [selectedStimulusId, setSelectedStimulusId] = useState<string>('');
   const [responses, setResponses] = useState<StimulusResponse[]>([]);
+  const [sessions, setSessions] = useState<ParticipantSession[]>([]);
   const [rules, setRules] = useState<NormalizationRule[]>([]);
 
   // View & Analysis Settings
@@ -55,7 +56,12 @@ export const TraditionalRSNPage: React.FC = () => {
   useEffect(() => {
     if (!projectId) return;
 
-    storageAdapter.getProject(projectId).then(setProject);
+    storageAdapter.getProject(projectId).then(p => {
+      setProject(p);
+      if (p?.settings?.includeCorrectionsInAnalysis !== undefined) {
+        setApplyNormalization(p.settings.includeCorrectionsInAnalysis);
+      }
+    });
     const unsubStim = storageAdapter.subscribeStimuli(projectId, list => {
       setStimuli(list);
       if (list.length > 0 && !selectedStimulusId) {
@@ -63,10 +69,12 @@ export const TraditionalRSNPage: React.FC = () => {
       }
     });
     const unsubRules = storageAdapter.subscribeRules(projectId, setRules);
+    const unsubSessions = storageAdapter.subscribeSessions(projectId, setSessions);
 
     return () => {
       unsubStim();
       unsubRules();
+      unsubSessions();
     };
   }, [projectId]);
 
@@ -80,18 +88,25 @@ export const TraditionalRSNPage: React.FC = () => {
     return () => unsubResp();
   }, [projectId, selectedStimulusId]);
 
+  // Active responses only from non-excluded sessions
+  const activeResponses = useMemo(() => {
+    if (sessions.length === 0) return responses;
+    const excludedIds = new Set(sessions.filter(s => s.flags?.excludedByAdmin).map(s => s.id));
+    return responses.filter(r => !excludedIds.has(r.sessionId));
+  }, [responses, sessions]);
+
   // Compute Traditional RSN Indicators
   const analysis = useMemo(() => {
-    if (responses.length === 0) return null;
+    if (activeResponses.length === 0) return null;
     return calculateTraditionalRSN(
-      responses,
+      activeResponses,
       rules,
       applyNormalization,
       project?.settings.weightingMethod || 'canonical',
       project?.settings.maxAssociations || 10,
       10
     );
-  }, [responses, rules, applyNormalization, project]);
+  }, [activeResponses, rules, applyNormalization, project]);
 
   // Sorted Definidoras
   const sortedDefinidoras = useMemo(() => {

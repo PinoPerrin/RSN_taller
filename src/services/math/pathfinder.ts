@@ -86,7 +86,7 @@ export function extractConceptsForPathfinder(
     stimResponses.forEach(resp => {
       const seen = new Set<string>();
       resp.associations.forEach(assoc => {
-        const clean = normalizeWord(assoc.rawWord, rules, applyRules);
+        const clean = normalizeWord(assoc.rawWord, rules, applyRules, assoc.canonicalWord);
         if (clean && !seen.has(clean)) {
           seen.add(clean);
           wordCounts.set(clean, (wordCounts.get(clean) || 0) + 1);
@@ -137,7 +137,7 @@ export function buildContingencyMatrix(
   responses.forEach(r => {
     const present = new Set<number>();
     r.associations.forEach(a => {
-      const clean = normalizeWord(a.rawWord, rules, applyRules);
+      const clean = normalizeWord(a.rawWord, rules, applyRules, a.canonicalWord);
       const idx = conceptIndex.get(clean);
       if (idx !== undefined) {
         present.add(idx);

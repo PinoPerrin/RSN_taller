@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Project, Stimulus, ProjectStatus, WeightingMethod, CutoffCriterion } from '../../types';
 import { storageAdapter, localDB } from '../../services/storage/storageAdapter';
 import { AdminLayout } from '../../components/layout/AdminLayout';
@@ -24,10 +25,14 @@ import {
 } from 'lucide-react';
 
 export const ProjectManagement: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [qrModalProject, setQrModalProject] = useState<Project | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [projectStimuliMap, setProjectStimuliMap] = useState<Record<string, Stimulus[]>>({});
 
   // Form modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -39,6 +44,22 @@ export const ProjectManagement: React.FC = () => {
     const unsub = storageAdapter.subscribeProjects(setProjects);
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (projects.length === 0) return;
+    projects.forEach(p => {
+      storageAdapter.getStimuli(p.id).then(stims => {
+        setProjectStimuliMap(prev => ({ ...prev, [p.id]: stims }));
+      });
+    });
+  }, [projects]);
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    if (location.pathname.endsWith('/new')) {
+      navigate('/admin/projects', { replace: true });
+    }
+  };
 
   const openCreateModal = () => {
     const newId = `proj-${Date.now().toString(36)}`;
@@ -80,9 +101,15 @@ export const ProjectManagement: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const openEditModal = (proj: Project) => {
+  useEffect(() => {
+    if (location.pathname.endsWith('/new')) {
+      openCreateModal();
+    }
+  }, [location.pathname]);
+
+  const openEditModal = async (proj: Project) => {
     setEditingProject({ ...proj });
-    const currentStimuli = localDB.getStimuli(proj.id);
+    const currentStimuli = await storageAdapter.getStimuli(proj.id);
     setStimuliList([...currentStimuli]);
     setIsModalOpen(true);
   };
@@ -91,27 +118,51 @@ export const ProjectManagement: React.FC = () => {
     e.preventDefault();
     if (!editingProject) return;
 
-    await storageAdapter.saveProject(editingProject);
+    const projToSave = { ...editingProject, updatedAt: new Date().toISOString() };
 
-    // Save stimuli
-    stimuliList.forEach(async (stim, idx) => {
-      await storageAdapter.saveStimulus({
-        ...stim,
-        projectId: editingProject.id,
-        order: idx + 1,
-      });
+    // Update state immediately for instant feedback
+    setProjects(prev => {
+      const idx = prev.findIndex(p => p.id === projToSave.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = projToSave;
+        return copy;
+      }
+      return [projToSave, ...prev];
     });
 
-    setIsModalOpen(false);
+    await storageAdapter.saveProject(projToSave);
+
+    // Delete any stimuli that were removed in the modal
+    const existingStimuli = localDB.getStimuli(projToSave.id);
+    const currentIds = new Set(stimuliList.map(s => s.id));
+    for (const oldStim of existingStimuli) {
+      if (!currentIds.has(oldStim.id)) {
+        await storageAdapter.deleteStimulus(oldStim.id, projToSave.id);
+      }
+    }
+
+    // Save all current stimuli sequentially
+    for (let idx = 0; idx < stimuliList.length; idx++) {
+      await storageAdapter.saveStimulus({
+        ...stimuliList[idx],
+        projectId: projToSave.id,
+        order: idx + 1,
+      });
+    }
+
+    handleCloseModal();
   };
 
   const handleDeleteProject = async (projectId: string, title: string) => {
     if (window.confirm(`¿Estás seguro de eliminar el proyecto "${title}"? Esta acción no se puede deshacer.`)) {
+      setProjects(prev => prev.filter(p => p.id !== projectId));
       await storageAdapter.deleteProject(projectId);
     }
   };
 
   const handleStatusChange = async (projectId: string, newStatus: ProjectStatus) => {
+    setProjects(prev => prev.map(p => (p.id === projectId ? { ...p, status: newStatus } : p)));
     await storageAdapter.setProjectStatus(projectId, newStatus);
   };
 
@@ -165,7 +216,7 @@ export const ProjectManagement: React.FC = () => {
         {/* Projects List */}
         <div className="grid grid-cols-1 gap-4">
           {projects.map(project => {
-            const stimuli = localDB.getStimuli(project.id);
+            const stimuli = projectStimuliMap[project.id] || localDB.getStimuli(project.id);
             const sessions = localDB.getSessions(project.id);
             const completedCount = sessions.filter(s => s.status === 'completed').length;
 
@@ -299,7 +350,7 @@ export const ProjectManagement: React.FC = () => {
                   </h2>
                 </div>
                 <button
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={handleCloseModal}
                   className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
                 >
                   <X className="w-5 h-5" />
@@ -500,7 +551,7 @@ export const ProjectManagement: React.FC = () => {
                 <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => setIsModalOpen(false)}
+                    onClick={handleCloseModal}
                     className="px-4 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50"
                   >
                     Cancelar

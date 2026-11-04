@@ -45,7 +45,7 @@ try {
 
 export const PathfinderPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
-  const currentProjectId = projectId || 'proj-taller-rsn';
+  const currentProjectId = projectId || '';
 
   const [project, setProject] = useState<Project | null>(null);
   const [stimuli, setStimuli] = useState<Stimulus[]>([]);
@@ -68,6 +68,7 @@ export const PathfinderPage: React.FC = () => {
   // Interactive Selection State (like SemNet p. 23)
   const [selectedConcepts, setSelectedConcepts] = useState<Set<string>>(new Set());
   const [inspectedConcept, setInspectedConcept] = useState<string | null>(null);
+  const [hoveredConcept, setHoveredConcept] = useState<string | null>(null);
 
   // AI Interpretation Drawer
   const [isAiInterpreting, setIsAiInterpreting] = useState(false);
@@ -113,6 +114,8 @@ export const PathfinderPage: React.FC = () => {
   }, [responses, activeSessionIds]);
 
   // Compute Pathfinder network whenever parameters change (memoized, zero infinite loop!)
+  const applyCorrections = project?.settings?.includeCorrectionsInAnalysis !== false;
+
   const pfResult = useMemo<PathfinderResult | null>(() => {
     if (stimuli.length === 0 || activeResponses.length === 0) return null;
 
@@ -132,7 +135,7 @@ export const PathfinderPage: React.FC = () => {
     const { concepts, conceptStimuliMap } = extractConceptsForPathfinder(
       targetResponses,
       rules,
-      true,
+      applyCorrections,
       samCutoffPerStimulus
     );
 
@@ -141,7 +144,7 @@ export const PathfinderPage: React.FC = () => {
     }
 
     // Traditional stats map for enrichment
-    const traditional = calculateTraditionalRSN(targetResponses, rules, true);
+    const traditional = calculateTraditionalRSN(targetResponses, rules, applyCorrections);
     const conceptStatsMap = new Map<string, { frequency: number; valorM: number; valorFMG: number; inSAM: boolean }>();
     traditional.definidoras.forEach(d => {
       conceptStatsMap.set(d.word, {
@@ -156,7 +159,7 @@ export const PathfinderPage: React.FC = () => {
     const maxQ = Math.max(1, concepts.length - 1);
     const effectiveQ = Math.min(qParam, maxQ);
 
-    return analyzePathfinder(targetResponses, concepts, rules, true, {
+    return analyzePathfinder(targetResponses, concepts, rules, applyCorrections, {
       r: rParam,
       q: effectiveQ,
       smoothing: smoothingParam,
@@ -174,7 +177,123 @@ export const PathfinderPage: React.FC = () => {
     qParam,
     smoothingParam,
     rules,
+    applyCorrections,
   ]);
+
+  // SVG Data URI for shared bicolor nodes (split left blue, right orange)
+  const splitBgUri = useMemo(() => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" preserveAspectRatio="none">
+  <rect x="0" y="0" width="50" height="100" fill="#bfdbfe" />
+  <rect x="50" y="0" width="50" height="100" fill="#fed7aa" />
+  <line x1="50" y1="0" x2="50" y2="100" stroke="#94a3b8" stroke-width="1.5" />
+</svg>`;
+    if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
+      return `data:image/svg+xml;base64,${window.btoa(svg)}`;
+    }
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }, []);
+
+  // Classify concepts by stimulus membership (Stimulus 1, Stimulus 2, Shared)
+  const stimulusClassification = useMemo(() => {
+    if (stimuli.length === 0) {
+      return {
+        stim1: null,
+        stim2: null,
+        conceptMembership: new Map<string, 'stimulus1' | 'stimulus2' | 'shared'>(),
+        stim1ConceptStats: new Map<string, { freq: number; valorM: number }>(),
+        stim2ConceptStats: new Map<string, { freq: number; valorM: number }>(),
+      };
+    }
+
+    const stim1 = stimuli[0];
+    const stim2 = stimuli.length > 1 ? stimuli[1] : stimuli[0];
+
+    // Compute traditional RSN stats for each stimulus separately
+    const stim1Responses = activeResponses.filter(r => r.stimulusId === stim1.id);
+    const stim2Responses = stimuli.length > 1 ? activeResponses.filter(r => r.stimulusId === stim2.id) : [];
+
+    const trad1 = calculateTraditionalRSN(stim1Responses, rules, applyCorrections);
+    const trad2 = calculateTraditionalRSN(stim2Responses, rules, applyCorrections);
+
+    const stim1ConceptStats = new Map<string, { freq: number; valorM: number }>();
+    trad1.definidoras.forEach(d => {
+      stim1ConceptStats.set(d.word, { freq: d.frequency, valorM: d.valorM });
+    });
+
+    const stim2ConceptStats = new Map<string, { freq: number; valorM: number }>();
+    trad2.definidoras.forEach(d => {
+      stim2ConceptStats.set(d.word, { freq: d.frequency, valorM: d.valorM });
+    });
+
+    const wordsIn1 = new Set(trad1.definidoras.map(d => d.word));
+    const wordsIn2 = new Set(trad2.definidoras.map(d => d.word));
+
+    const conceptMembership = new Map<string, 'stimulus1' | 'stimulus2' | 'shared'>();
+
+    if (pfResult) {
+      pfResult.concepts.forEach(concept => {
+        const in1 = wordsIn1.has(concept);
+        const in2 = wordsIn2.has(concept);
+
+        if (in1 && in2) {
+          conceptMembership.set(concept, 'shared');
+        } else if (in1) {
+          conceptMembership.set(concept, 'stimulus1');
+        } else if (in2) {
+          conceptMembership.set(concept, 'stimulus2');
+        } else {
+          // Fallback checking stimuliSources from pfResult
+          const sources = pfResult.conceptStats[concept]?.stimuliSources || [];
+          const matches1 = sources.some(s => s.toLowerCase() === stim1.text.toLowerCase() || s === stim1.id);
+          const matches2 = sources.some(s => s.toLowerCase() === stim2.text.toLowerCase() || s === stim2.id);
+          if (matches1 && matches2) {
+            conceptMembership.set(concept, 'shared');
+          } else if (matches1) {
+            conceptMembership.set(concept, 'stimulus1');
+          } else if (matches2) {
+            conceptMembership.set(concept, 'stimulus2');
+          } else {
+            conceptMembership.set(concept, 'shared');
+          }
+        }
+      });
+    }
+
+    return {
+      stim1,
+      stim2,
+      conceptMembership,
+      stim1ConceptStats,
+      stim2ConceptStats,
+    };
+  }, [stimuli, activeResponses, rules, applyCorrections, pfResult]);
+
+  const stim1Name = stimulusClassification.stim1?.text || 'Estímulo 1';
+  const stim2Name = stimulusClassification.stim2?.text || 'Estímulo 2';
+  const hasTwoStimuli = stimuli.length >= 2;
+
+  const stim1OnlyCount = useMemo(() => {
+    return Array.from(stimulusClassification.conceptMembership.values()).filter(m => m === 'stimulus1').length;
+  }, [stimulusClassification]);
+
+  const stim2OnlyCount = useMemo(() => {
+    return Array.from(stimulusClassification.conceptMembership.values()).filter(m => m === 'stimulus2').length;
+  }, [stimulusClassification]);
+
+  const sharedCount = useMemo(() => {
+    return Array.from(stimulusClassification.conceptMembership.values()).filter(m => m === 'shared').length;
+  }, [stimulusClassification]);
+
+  const handleHighlightByMembership = (membershipType: 'stimulus1' | 'stimulus2' | 'shared') => {
+    if (!pfResult) return;
+    const matching = pfResult.concepts.filter(
+      c => stimulusClassification.conceptMembership.get(c) === membershipType
+    );
+    setSelectedConcepts(new Set(matching));
+    if (matching.length > 0) {
+      setInspectedConcept(matching[0]);
+    }
+  };
 
   // Memoize elements with SemNet rectangular badge dimensions that enclose words completely
   const elements = useMemo<cytoscape.ElementDefinition[]>(() => {
@@ -188,6 +307,7 @@ export const PathfinderPage: React.FC = () => {
       const degree = stats?.degree || 0;
       const valorM = stats?.valorM || 0;
       const freq = stats?.frequency || 0;
+      const membership = stimulusClassification.conceptMembership.get(concept) || 'shared';
 
       // Label with degree in brackets, identical to SemNet user manual p. 23!
       const labelWithDegree = `${concept.toUpperCase()} [${degree}]`;
@@ -221,8 +341,10 @@ export const PathfinderPage: React.FC = () => {
           nodeWidth,
           nodeHeight,
           fontSize,
+          membership,
           stimuli: stats?.stimuliSources?.join(', ') || '',
         },
+        classes: `membership-${membership}`,
       });
     });
 
@@ -241,7 +363,7 @@ export const PathfinderPage: React.FC = () => {
     });
 
     return res;
-  }, [pfResult, nodeSizingBy]);
+  }, [pfResult, nodeSizingBy, stimulusClassification]);
 
   // Initialize and update Cytoscape graph
   useEffect(() => {
@@ -281,6 +403,39 @@ export const PathfinderPage: React.FC = () => {
             'transition-duration': 0.15,
           },
         },
+        // Stimulus 1 exclusive node (Soft Blue)
+        {
+          selector: 'node.membership-stimulus1',
+          style: {
+            'background-color': '#dbeafe',
+            'border-color': '#2563eb',
+            'border-width': 2,
+            color: '#1e3a8a',
+          },
+        },
+        // Stimulus 2 exclusive node (Soft Orange)
+        {
+          selector: 'node.membership-stimulus2',
+          style: {
+            'background-color': '#ffedd5',
+            'border-color': '#ea580c',
+            'border-width': 2,
+            color: '#7c2d12',
+          },
+        },
+        // Shared node (Bicolor split: left blue, right orange)
+        {
+          selector: 'node.membership-shared',
+          style: {
+            'background-color': '#fed7aa',
+            'background-image': splitBgUri,
+            'background-fit': 'cover',
+            'background-clip': 'node',
+            'border-color': '#7c3aed',
+            'border-width': 2.5,
+            color: '#0f172a',
+          },
+        },
         {
           selector: 'edge',
           style: {
@@ -292,14 +447,12 @@ export const PathfinderPage: React.FC = () => {
             'transition-duration': 0.15,
           },
         },
-        // Highlighted node style (SemNet p. 23 red border & text)
+        // Highlighted node style (preserves background color / split, bold red border)
         {
           selector: 'node.highlighted',
           style: {
-            'background-color': '#fef2f2',
             'border-color': '#dc2626',
-            'border-width': 3,
-            color: '#991b1b',
+            'border-width': 3.5,
             opacity: 1,
             'z-index': 99,
           },
@@ -308,10 +461,8 @@ export const PathfinderPage: React.FC = () => {
         {
           selector: 'node.neighbor',
           style: {
-            'background-color': '#eff6ff',
-            'border-color': '#2563eb',
+            'border-color': '#0284c7',
             'border-width': 2.5,
-            color: '#1e40af',
             opacity: 1,
             'z-index': 50,
           },
@@ -330,7 +481,7 @@ export const PathfinderPage: React.FC = () => {
         {
           selector: 'node.dimmed',
           style: {
-            opacity: 0.18,
+            opacity: 0.2,
           },
         },
         {
@@ -342,14 +493,25 @@ export const PathfinderPage: React.FC = () => {
       ],
       layout: {
         name: 'cola',
-        animate: true,
-        refresh: 2,
-        maxSimulationTime: 1800,
+        animate: false,
+        refresh: 1,
+        maxSimulationTime: 1000,
         nodeSpacing: 50,
         edgeLength: 140,
         avoidOverlap: true,
         randomize: false,
       } as any,
+    });
+
+    // Hover handler for node
+    cy.on('mouseover', 'node', evt => {
+      const node = evt.target;
+      const word = node.data('rawWord');
+      setHoveredConcept(word);
+    });
+
+    cy.on('mouseout', 'node', () => {
+      setHoveredConcept(null);
     });
 
     // Click handler for node selection
@@ -442,10 +604,15 @@ export const PathfinderPage: React.FC = () => {
 
     let svgStr = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">\n`;
     svgStr += `  <style>\n`;
-    svgStr += `    .node-text { font-family: Inter, system-ui, -apple-system, sans-serif; font-weight: bold; fill: #1e293b; text-anchor: middle; dominant-baseline: central; }\n`;
+    svgStr += `    .node-text { font-family: Inter, system-ui, -apple-system, sans-serif; font-weight: bold; text-anchor: middle; dominant-baseline: central; }\n`;
     svgStr += `    .edge-line { stroke: #94a3b8; stroke-width: 1.5; stroke-opacity: 0.65; }\n`;
-    svgStr += `    .node-rect { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 8; ry: 8; }\n`;
     svgStr += `  </style>\n`;
+    svgStr += `  <defs>\n`;
+    svgStr += `    <linearGradient id="splitGradient" x1="0%" y1="0%" x2="100%" y2="0%">\n`;
+    svgStr += `      <stop offset="50%" stop-color="#bfdbfe" />\n`;
+    svgStr += `      <stop offset="50%" stop-color="#fed7aa" />\n`;
+    svgStr += `    </linearGradient>\n`;
+    svgStr += `  </defs>\n`;
     svgStr += `  <rect width="100%" height="100%" fill="#ffffff" />\n`;
 
     // Edges
@@ -462,13 +629,48 @@ export const PathfinderPage: React.FC = () => {
       const nh = n.data('nodeHeight') || 34;
       const fontSize = n.data('fontSize') || 11;
       const label = n.data('label') || '';
+      const membership = n.data('membership') || 'shared';
       const cx = (pos.x + offsetX).toFixed(1);
       const cyPos = (pos.y + offsetY).toFixed(1);
+
+      let fill = '#ffffff';
+      let stroke = '#cbd5e1';
+      let textColor = '#1e293b';
+
+      if (membership === 'stimulus1') {
+        fill = '#dbeafe';
+        stroke = '#2563eb';
+        textColor = '#1e3a8a';
+      } else if (membership === 'stimulus2') {
+        fill = '#ffedd5';
+        stroke = '#ea580c';
+        textColor = '#7c2d12';
+      } else if (membership === 'shared') {
+        fill = 'url(#splitGradient)';
+        stroke = '#7c3aed';
+        textColor = '#0f172a';
+      }
+
       svgStr += `  <g transform="translate(${cx}, ${cyPos})">\n`;
-      svgStr += `    <rect x="${(-nw / 2).toFixed(1)}" y="${(-nh / 2).toFixed(1)}" width="${nw}" height="${nh}" class="node-rect" />\n`;
-      svgStr += `    <text class="node-text" font-size="${fontSize}px">${label}</text>\n`;
+      svgStr += `    <rect x="${(-nw / 2).toFixed(1)}" y="${(-nh / 2).toFixed(1)}" width="${nw}" height="${nh}" rx="8" ry="8" fill="${fill}" stroke="${stroke}" stroke-width="2" />\n`;
+      if (membership === 'shared') {
+        svgStr += `    <line x1="0" y1="${(-nh / 2).toFixed(1)}" x2="0" y2="${(nh / 2).toFixed(1)}" stroke="#94a3b8" stroke-width="1.5" />\n`;
+      }
+      svgStr += `    <text class="node-text" font-size="${fontSize}px" fill="${textColor}">${label}</text>\n`;
       svgStr += `  </g>\n`;
     });
+
+    // Add Legend in exported SVG if 2 stimuli
+    if (hasTwoStimuli) {
+      svgStr += `  <g transform="translate(30, 25)">\n`;
+      svgStr += `    <rect x="0" y="0" width="18" height="18" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5" />\n`;
+      svgStr += `    <text x="26" y="14" font-family="Inter, sans-serif" font-size="12px" font-weight="bold" fill="#1e3a8a">${stim1Name} (${stim1OnlyCount})</text>\n`;
+      svgStr += `    <rect x="180" y="0" width="18" height="18" rx="4" fill="#ffedd5" stroke="#ea580c" stroke-width="1.5" />\n`;
+      svgStr += `    <text x="206" y="14" font-family="Inter, sans-serif" font-size="12px" font-weight="bold" fill="#7c2d12">${stim2Name} (${stim2OnlyCount})</text>\n`;
+      svgStr += `    <rect x="360" y="0" width="18" height="18" rx="4" fill="url(#splitGradient)" stroke="#7c3aed" stroke-width="1.5" />\n`;
+      svgStr += `    <text x="386" y="14" font-family="Inter, sans-serif" font-size="12px" font-weight="bold" fill="#0f172a">Compartida (${sharedCount})</text>\n`;
+      svgStr += `  </g>\n`;
+    }
 
     svgStr += `</svg>`;
 
@@ -891,7 +1093,7 @@ export const PathfinderPage: React.FC = () => {
                   <Maximize2 className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => cyRef.current?.layout({ name: 'cola', animate: true, nodeSpacing: 45 } as any).run()}
+                  onClick={() => cyRef.current?.layout({ name: 'cola', animate: false, nodeSpacing: 45 } as any).run()}
                   className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
                   title="Redistribuir nodos"
                 >
@@ -900,8 +1102,109 @@ export const PathfinderPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Graph Canvas */}
-            <div ref={containerRef} className="flex-1 w-full h-[540px] relative rounded-2xl bg-slate-50/40" />
+            {/* Stimulus Membership Legend & Filter Bar */}
+            <div className="py-2.5 px-3 bg-slate-50/90 rounded-2xl border border-slate-100 my-2 flex flex-wrap items-center justify-between gap-3 text-xs z-10">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-slate-700 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                  <Layers className="w-3.5 h-3.5 text-primary-600" />
+                  Origen de Palabras:
+                </span>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Stimulus 1 */}
+                  <button
+                    onClick={() => handleHighlightByMembership('stimulus1')}
+                    className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-blue-50 hover:bg-blue-100/80 border border-blue-200 text-blue-900 transition-colors shadow-2xs group"
+                    title={`Filtrar palabras exclusivas de ${stim1Name}`}
+                  >
+                    <span className="w-3.5 h-3.5 rounded-md bg-blue-200 border border-blue-600 group-hover:scale-110 transition-transform shadow-2xs" />
+                    <span className="font-extrabold">{stim1Name}</span>
+                    <span className="text-[10px] font-mono bg-blue-200/70 text-blue-800 px-1.5 py-0.2 rounded-md font-bold">
+                      {stim1OnlyCount}
+                    </span>
+                  </button>
+
+                  {/* Stimulus 2 (if 2 stimuli available) */}
+                  {hasTwoStimuli && (
+                    <button
+                      onClick={() => handleHighlightByMembership('stimulus2')}
+                      className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-orange-50 hover:bg-orange-100/80 border border-orange-200 text-orange-950 transition-colors shadow-2xs group"
+                      title={`Filtrar palabras exclusivas de ${stim2Name}`}
+                    >
+                      <span className="w-3.5 h-3.5 rounded-md bg-orange-200 border border-orange-600 group-hover:scale-110 transition-transform shadow-2xs" />
+                      <span className="font-extrabold">{stim2Name}</span>
+                      <span className="text-[10px] font-mono bg-orange-200/70 text-orange-900 px-1.5 py-0.2 rounded-md font-bold">
+                        {stim2OnlyCount}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Shared / Bicolor (if 2 stimuli available) */}
+                  {hasTwoStimuli && (
+                    <button
+                      onClick={() => handleHighlightByMembership('shared')}
+                      className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-purple-50 hover:bg-purple-100/80 border border-purple-200 text-purple-950 transition-colors shadow-2xs group"
+                      title="Filtrar palabras compartidas entre ambos estímulos"
+                    >
+                      <span className="w-4 h-3.5 rounded-md border border-purple-600 overflow-hidden flex group-hover:scale-110 transition-transform shadow-2xs">
+                        <span className="w-1/2 h-full bg-[#bfdbfe]" />
+                        <span className="w-1/2 h-full bg-[#fed7aa]" />
+                      </span>
+                      <span className="font-extrabold">Compartida (Bicolor)</span>
+                      <span className="text-[10px] font-mono bg-purple-200/70 text-purple-900 px-1.5 py-0.2 rounded-md font-bold">
+                        {sharedCount}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-400 font-medium hidden sm:block">
+                Haz clic en una categoría para aislarla en el grafo
+              </div>
+            </div>
+
+            {/* Graph Canvas Container */}
+            <div className="relative flex-1 w-full h-[540px]">
+              {/* Floating Hover Tooltip */}
+              {hoveredConcept && (
+                <div className="absolute top-3 left-3 z-30 bg-slate-900/95 text-white backdrop-blur-md px-3.5 py-2.5 rounded-2xl shadow-xl border border-slate-700/80 pointer-events-none transition-all animate-in fade-in zoom-in-95 duration-100 flex items-center gap-2.5">
+                  <div className="flex items-center gap-2">
+                    {stimulusClassification.conceptMembership.get(hoveredConcept) === 'shared' ? (
+                      <span className="w-3.5 h-3.5 rounded-md border border-purple-400 overflow-hidden flex shadow-xs">
+                        <span className="w-1/2 h-full bg-[#bfdbfe]" />
+                        <span className="w-1/2 h-full bg-[#fed7aa]" />
+                      </span>
+                    ) : stimulusClassification.conceptMembership.get(hoveredConcept) === 'stimulus1' ? (
+                      <span className="w-3.5 h-3.5 rounded-md bg-[#bfdbfe] border border-blue-500 shadow-xs" />
+                    ) : (
+                      <span className="w-3.5 h-3.5 rounded-md bg-[#fed7aa] border border-orange-500 shadow-xs" />
+                    )}
+                    <span className="font-black text-sm uppercase tracking-wide text-white">
+                      {hoveredConcept}
+                    </span>
+                  </div>
+
+                  <span className="text-slate-500">•</span>
+
+                  <span className="text-xs font-semibold text-slate-300">
+                    {stimulusClassification.conceptMembership.get(hoveredConcept) === 'shared'
+                      ? `Compartida (${stim1Name} y ${stim2Name})`
+                      : stimulusClassification.conceptMembership.get(hoveredConcept) === 'stimulus1'
+                      ? `Solo ${stim1Name}`
+                      : `Solo ${stim2Name}`}
+                  </span>
+
+                  <span className="text-slate-500">•</span>
+
+                  <span className="text-xs font-mono text-primary-400 font-bold">
+                    {pfResult?.conceptStats[hoveredConcept]?.degree || 0} enlaces
+                  </span>
+                </div>
+              )}
+
+              <div ref={containerRef} className="w-full h-full relative rounded-2xl bg-slate-50/40" />
+            </div>
 
             {/* Methodological Disclaimer Footer */}
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
@@ -938,10 +1241,59 @@ export const PathfinderPage: React.FC = () => {
                     <h4 className="text-lg font-black text-slate-900 tracking-tight">
                       {inspectedConcept.toUpperCase()}
                     </h4>
-                    <p className="text-[11px] text-slate-400">
-                      Estímulos origen: {inspectedData.stimuliSources.join(', ') || 'N/A'}
-                    </p>
+                    {/* Stimulus membership badge */}
+                    <div className="mt-1.5">
+                      {stimulusClassification.conceptMembership.get(inspectedConcept) === 'shared' ? (
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-50 text-purple-950 border border-purple-200 text-xs font-bold shadow-2xs">
+                          <span className="w-3 h-3 rounded-sm border border-purple-500 overflow-hidden flex shadow-2xs">
+                            <span className="w-1/2 h-full bg-[#bfdbfe]" />
+                            <span className="w-1/2 h-full bg-[#fed7aa]" />
+                          </span>
+                          Compartida ({stim1Name} y {stim2Name})
+                        </div>
+                      ) : stimulusClassification.conceptMembership.get(inspectedConcept) === 'stimulus1' ? (
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-50 text-blue-900 border border-blue-200 text-xs font-bold shadow-2xs">
+                          <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                          Solo {stim1Name}
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-orange-50 text-orange-950 border border-orange-200 text-xs font-bold shadow-2xs">
+                          <span className="w-2.5 h-2.5 rounded-full bg-orange-500" />
+                          Solo {stim2Name}
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Comparative Presence Breakdown per Stimulus */}
+                  {hasTwoStimuli && (
+                    <div className="p-3 bg-slate-50/80 rounded-2xl border border-slate-100 space-y-1.5 text-xs">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                        Presencia por Estímulo:
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Stimulus 1 */}
+                        <div className="p-2 rounded-xl bg-blue-50/70 border border-blue-100">
+                          <span className="font-bold text-blue-900 block truncate text-[11px]">{stim1Name}</span>
+                          <div className="text-[10px] text-slate-600 mt-1 font-mono">
+                            <span>FA: <strong className="text-blue-950">{stimulusClassification.stim1ConceptStats.get(inspectedConcept)?.freq || 0}</strong></span>
+                            <span className="mx-1 text-slate-300">•</span>
+                            <span>M: <strong className="text-blue-950">{stimulusClassification.stim1ConceptStats.get(inspectedConcept)?.valorM || 0}</strong></span>
+                          </div>
+                        </div>
+
+                        {/* Stimulus 2 */}
+                        <div className="p-2 rounded-xl bg-orange-50/70 border border-orange-100">
+                          <span className="font-bold text-orange-950 block truncate text-[11px]">{stim2Name}</span>
+                          <div className="text-[10px] text-slate-600 mt-1 font-mono">
+                            <span>FA: <strong className="text-orange-950">{stimulusClassification.stim2ConceptStats.get(inspectedConcept)?.freq || 0}</strong></span>
+                            <span className="mx-1 text-slate-300">•</span>
+                            <span>M: <strong className="text-orange-950">{stimulusClassification.stim2ConceptStats.get(inspectedConcept)?.valorM || 0}</strong></span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="p-2.5 bg-slate-50 rounded-xl">

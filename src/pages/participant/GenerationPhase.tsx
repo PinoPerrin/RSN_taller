@@ -19,7 +19,10 @@ export const GenerationPhase: React.FC<Props> = ({
   timeLimitSeconds = 60,
   onComplete,
 }) => {
-  const [timeLeft, setTimeLeft] = useState(timeLimitSeconds);
+  const safeTimeLimit = Math.max(10, Number(timeLimitSeconds) || 60);
+  const safeMaxWords = Math.max(1, Number(maxWords) || 10);
+
+  const [timeLeft, setTimeLeft] = useState(safeTimeLimit);
   const [currentWord, setCurrentWord] = useState('');
   const [associations, setAssociations] = useState<RawAssociation[]>([]);
   const [inputError, setInputError] = useState<string | null>(null);
@@ -28,55 +31,70 @@ export const GenerationPhase: React.FC<Props> = ({
   const typingStartRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const isFinishedRef = useRef(false);
+  const associationsRef = useRef<RawAssociation[]>(associations);
+  associationsRef.current = associations;
 
   // Timer Countdown
   useEffect(() => {
     startTimeRef.current = performance.now();
     isFinishedRef.current = false;
-    setTimeLeft(timeLimitSeconds);
+    setTimeLeft(safeTimeLimit);
 
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timer);
-          if (!isFinishedRef.current) {
-            handleTimeExpired();
-          }
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
 
-    // Visibility change detection (tab switch / background)
-    const handleVisibility = () => {
-      if (document.hidden) {
-        // Tab hidden
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
     return () => {
       clearInterval(timer);
-      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [stimulus.id]);
+  }, [stimulus?.id, safeTimeLimit]);
 
-  const handleTimeExpired = () => {
-    isFinishedRef.current = true;
-    const totalDuration = Math.round(performance.now() - startTimeRef.current);
-    onComplete(associations, totalDuration);
-  };
+  // Handle time expiration safely outside state updater
+  useEffect(() => {
+    if (timeLeft === 0 && !isFinishedRef.current) {
+      isFinishedRef.current = true;
+      const totalDuration = Math.round(performance.now() - startTimeRef.current);
+      onComplete(associationsRef.current, totalDuration);
+    }
+  }, [timeLeft, onComplete]);
 
   const handleFinishEarly = () => {
-    if (associations.length === 0) {
+    let finalAssocs = [...associations];
+    const trimmed = currentWord.trim();
+    if (
+      trimmed &&
+      finalAssocs.length < safeMaxWords &&
+      !finalAssocs.some(a => a.rawWord.toLowerCase() === trimmed.toLowerCase())
+    ) {
+      const now = performance.now();
+      const newAssoc: RawAssociation = {
+        rawWord: trimmed,
+        generationOrder: finalAssocs.length + 1,
+        rank: finalAssocs.length + 1,
+        timing: {
+          word: trimmed,
+          confirmedMs: Math.round(now - startTimeRef.current),
+        },
+      };
+      finalAssocs.push(newAssoc);
+      setAssociations(finalAssocs);
+      setCurrentWord('');
+    }
+
+    if (finalAssocs.length === 0) {
       if (!confirm('¿Seguro que deseas continuar sin agregar ninguna palabra para este concepto?')) {
         return;
       }
     }
     isFinishedRef.current = true;
     const totalDuration = Math.round(performance.now() - startTimeRef.current);
-    onComplete(associations, totalDuration);
+    onComplete(finalAssocs, totalDuration);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -203,10 +221,10 @@ export const GenerationPhase: React.FC<Props> = ({
             Palabra Estímulo
           </span>
           <h1 className="text-3xl sm:text-4xl font-black text-slate-950 tracking-tight">
-            {stimulus.text}
+            {stimulus?.text || 'CONCEPTO'}
           </h1>
           <p className="text-xs text-slate-500 max-w-xs mx-auto pt-1">
-            Escribe hasta {maxWords} palabras que relaciones con este concepto
+            Escribe hasta {safeMaxWords} palabras que relaciones con este concepto
           </p>
         </div>
 

@@ -21,7 +21,7 @@ import {
 
 export const ExportsReportPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
-  const currentProjectId = projectId || 'proj-taller-rsn';
+  const currentProjectId = projectId || '';
 
   const [project, setProject] = useState<Project | null>(null);
   const [stimuli, setStimuli] = useState<Stimulus[]>([]);
@@ -112,6 +112,7 @@ export const ExportsReportPage: React.FC = () => {
 
   // 2. Export Summary Definidoras CSV
   const handleExportDefinidorasCsv = () => {
+    const applyCorrections = project?.settings?.includeCorrectionsInAnalysis !== false;
     const headers = [
       'stimulus_text',
       'word',
@@ -131,7 +132,7 @@ export const ExportsReportPage: React.FC = () => {
       const res = calculateTraditionalRSN(
         stimResponses,
         rules,
-        true,
+        applyCorrections,
         project?.settings.weightingMethod || 'canonical'
       );
 
@@ -264,12 +265,13 @@ export const ExportsReportPage: React.FC = () => {
       doc.text(`• Análisis Topológico de Grafos: Proyección no dirigida de coocurrencia (Siew et al., 2019).`, 45, y);
 
       // Process each stimulus
+      const applyCorrections = project?.settings?.includeCorrectionsInAnalysis !== false;
       stimuli.forEach((stim, sIdx) => {
         const stimResponses = activeResponses.filter(r => r.stimulusId === stim.id);
         const traditional = calculateTraditionalRSN(
           stimResponses,
           rules,
-          true,
+          applyCorrections,
           project?.settings.weightingMethod || 'canonical'
         );
 

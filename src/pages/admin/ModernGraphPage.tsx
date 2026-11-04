@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { Project, Stimulus, StimulusResponse, NormalizationRule, GraphNode } from '../../types';
+import { Project, Stimulus, StimulusResponse, NormalizationRule, GraphNode, ParticipantSession } from '../../types';
 import { storageAdapter } from '../../services/storage/storageAdapter';
 import { calculateTraditionalRSN } from '../../services/math/rsnTraditional';
 import { calculateModernGraph } from '../../services/math/graphAnalysis';
@@ -49,6 +49,7 @@ export const ModernGraphPage: React.FC = () => {
   const [stimuli, setStimuli] = useState<Stimulus[]>([]);
   const [selectedStimulusId, setSelectedStimulusId] = useState<string>('');
   const [responses, setResponses] = useState<StimulusResponse[]>([]);
+  const [sessions, setSessions] = useState<ParticipantSession[]>([]);
   const [rules, setRules] = useState<NormalizationRule[]>([]);
 
   // Network Configuration
@@ -72,10 +73,12 @@ export const ModernGraphPage: React.FC = () => {
       }
     });
     const unsubRules = storageAdapter.subscribeRules(projectId, setRules);
+    const unsubSessions = storageAdapter.subscribeSessions(projectId, setSessions);
 
     return () => {
       unsubStim();
       unsubRules();
+      unsubSessions();
     };
   }, [projectId]);
 
@@ -89,16 +92,25 @@ export const ModernGraphPage: React.FC = () => {
     return () => unsubResp();
   }, [projectId, selectedStimulusId]);
 
+  // Active responses only from non-excluded sessions
+  const activeResponses = useMemo(() => {
+    if (sessions.length === 0) return responses;
+    const excludedIds = new Set(sessions.filter(s => s.flags?.excludedByAdmin).map(s => s.id));
+    return responses.filter(r => !excludedIds.has(r.sessionId));
+  }, [responses, sessions]);
+
+  const applyCorrections = project?.settings?.includeCorrectionsInAnalysis !== false;
+
   // Calculations
   const traditionalAnalysis = useMemo(() => {
-    if (responses.length === 0) return null;
-    return calculateTraditionalRSN(responses, rules, true);
-  }, [responses, rules]);
+    if (activeResponses.length === 0) return null;
+    return calculateTraditionalRSN(activeResponses, rules, applyCorrections);
+  }, [activeResponses, rules, applyCorrections]);
 
   const modernAnalysis = useMemo(() => {
-    if (responses.length === 0) return null;
-    return calculateModernGraph(responses, rules, true, edgeThreshold);
-  }, [responses, rules, edgeThreshold]);
+    if (activeResponses.length === 0) return null;
+    return calculateModernGraph(activeResponses, rules, applyCorrections, edgeThreshold);
+  }, [activeResponses, rules, applyCorrections, edgeThreshold]);
 
   const currentStimulus = stimuli.find(s => s.id === selectedStimulusId);
 
@@ -255,9 +267,9 @@ export const ModernGraphPage: React.FC = () => {
       ],
       layout: {
         name: networkModel === 'stimulus_star' ? 'concentric' : 'cola',
-        animate: true,
+        animate: false,
         refresh: 1,
-        maxSimulationTime: 1500,
+        maxSimulationTime: 1000,
         nodeSpacing: 35,
       } as any,
     });

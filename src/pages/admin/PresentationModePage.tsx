@@ -67,10 +67,12 @@ export const PresentationModePage: React.FC = () => {
 
   const currentStimulus = stimuli.find(s => s.id === selectedStimulusId);
 
+  const applyCorrections = project?.settings?.includeCorrectionsInAnalysis !== false;
+
   const analysis = useMemo(() => {
     if (responses.length === 0) return null;
-    return calculateTraditionalRSN(responses, rules, true);
-  }, [responses, rules]);
+    return calculateTraditionalRSN(responses, rules, applyCorrections);
+  }, [responses, rules, applyCorrections]);
 
   // Cytoscape presentation graph
   useEffect(() => {
@@ -168,9 +170,9 @@ export const PresentationModePage: React.FC = () => {
       layout: {
         name: 'cola',
         // @ts-ignore
-        animate: true,
+        animate: false,
         refresh: 1,
-        maxSimulationTime: 2000,
+        maxSimulationTime: 1000,
         nodeSpacing: 50,
       },
     });

@@ -12,15 +12,15 @@ interface Props {
 
 export const RankingPhase: React.FC<Props> = ({
   stimulus,
-  associations: initialAssociations,
+  associations: initialAssociations = [],
   currentStimulusIndex,
   totalStimuli,
   onConfirm,
 }) => {
   // Items with their current assigned rank (1 to m)
   const [items, setItems] = useState<RawAssociation[]>(() => {
-    // Start with initial ranks matching 1..m
-    return initialAssociations.map((item, idx) => ({
+    const safeList = Array.isArray(initialAssociations) ? initialAssociations : [];
+    return safeList.map((item, idx) => ({
       ...item,
       rank: idx + 1,
     }));
@@ -29,6 +29,16 @@ export const RankingPhase: React.FC<Props> = ({
   const [startTime] = useState<number>(performance.now());
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sync state if initialAssociations updates
+  React.useEffect(() => {
+    if (Array.isArray(initialAssociations) && initialAssociations.length > 0) {
+      setItems(initialAssociations.map((item, idx) => ({
+        ...item,
+        rank: idx + 1,
+      })));
+    }
+  }, [initialAssociations]);
 
   const m = items.length;
 
@@ -88,11 +98,11 @@ export const RankingPhase: React.FC<Props> = ({
             Concepto evaluado
           </span>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            {stimulus.text}
+            {stimulus?.text || 'CONCEPTO'}
           </h2>
           <p className="text-xs text-slate-600 mt-1 leading-relaxed">
             Ordena tus palabras según qué tan importantes son para describir{' '}
-            <strong>{stimulus.text}</strong>.
+            <strong>{stimulus?.text || 'el concepto'}</strong>.
           </p>
           <p className="text-[11px] text-indigo-600 font-medium mt-0.5">
             El <strong>#1</strong> es la palabra más importante.
@@ -113,7 +123,7 @@ export const RankingPhase: React.FC<Props> = ({
 
             return (
               <div
-                key={item.rawWord}
+                key={`${item.rawWord || 'w'}-${index}`}
                 draggable
                 onDragStart={() => handleDragStart(index)}
                 onDragOver={e => handleDragOver(e, index)}

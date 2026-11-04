@@ -36,7 +36,7 @@ export function buildBinaryResponseMatrix(
   for (const resp of valid) {
     const pSet = new Set<string>();
     for (const assoc of resp.associations) {
-      const clean = normalizeWord(assoc.rawWord, rules, applyRules);
+      const clean = normalizeWord(assoc.rawWord, rules, applyRules, assoc.canonicalWord);
       if (clean) {
         wordSet.add(clean);
         pSet.add(clean);

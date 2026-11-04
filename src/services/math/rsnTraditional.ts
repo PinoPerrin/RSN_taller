@@ -17,9 +17,16 @@ import {
 export function normalizeWord(
   rawWord: string,
   rules: NormalizationRule[] = [],
-  applyRules: boolean = true
+  applyRules: boolean = true,
+  canonicalWord?: string
 ): string {
   if (!rawWord) return '';
+
+  // Tier 0: Direct manual correction override if active
+  if (applyRules && canonicalWord && canonicalWord.trim().length > 0) {
+    return canonicalWord.trim().replace(/\s+/g, ' ').normalize('NFC').toLocaleLowerCase('es');
+  }
+
   // Tier 1: Technical safe normalization
   let cleaned = rawWord
     .trim()
@@ -202,7 +209,7 @@ export function calculateTraditionalRSN(
     const seenInResponse = new Set<string>();
 
     for (const assoc of resp.associations) {
-      const cleanWord = normalizeWord(assoc.rawWord, rules, applyRules);
+      const cleanWord = normalizeWord(assoc.rawWord, rules, applyRules, assoc.canonicalWord);
       if (!cleanWord) continue;
 
       if (!seenInResponse.has(cleanWord)) {
@@ -338,7 +345,7 @@ export function calculateIndividualScores(
   rules: NormalizationRule[] = [],
   applyRules: boolean = true
 ): { valorS: number; valorL: number; valorC: number } {
-  const words = response.associations.map(a => normalizeWord(a.rawWord, rules, applyRules));
+  const words = response.associations.map(a => normalizeWord(a.rawWord, rules, applyRules, a.canonicalWord));
   const valorS = new Set(words).size;
 
   const samMap = new Map<string, number>();
@@ -352,7 +359,7 @@ export function calculateIndividualScores(
   let valorCPts = 0;
 
   response.associations.forEach(assoc => {
-    const w = normalizeWord(assoc.rawWord, rules, applyRules);
+    const w = normalizeWord(assoc.rawWord, rules, applyRules, assoc.canonicalWord);
     if (samMap.has(w)) {
       valorL += samMap.get(w)!;
       const samRank = samOrderMap.get(w)!;

@@ -184,4 +184,60 @@ describe('RSN Traditional Indicators Verification', () => {
     expect(singleResults.definidoras[0].valorFMG).toBe(100);
     expect(singleResults.valorG).toBe(0); // Only 1 word
   });
+
+  it('correctly applies manual corrections in normalizeWord and merges in calculateTraditionalRSN', () => {
+    // 1. Direct canonicalWord override when applyRules = true
+    expect(normalizeWord('lagrimas', [], true, 'lágrima')).toBe('lágrima');
+    // When applyRules = false, it uses rawWord
+    expect(normalizeWord('lagrimas', [], false, 'lágrima')).toBe('lagrimas');
+
+    // 2. Integration in calculateTraditionalRSN:
+    // Two participants: P1 wrote 'lagrimas' (corrected to 'lágrima') rank 1 (10 pts)
+    // P2 wrote 'lágrima' rank 2 (9 pts)
+    const responses: StimulusResponse[] = [
+      {
+        id: 'r1',
+        sessionId: 's1',
+        projectId: 'p1',
+        stimulusId: 'st1',
+        stimulusText: 'DOLOR',
+        associations: [
+          { rawWord: 'lagrimas', canonicalWord: 'lágrima', generationOrder: 1, rank: 1, timing: { word: 'lagrimas', confirmedMs: 3000 } },
+        ],
+        completedAt: '2026-10-13T10:00:00Z',
+        totalGenerationTimeMs: 3000,
+        rankingTimeMs: 1000,
+        wordCount: 1,
+      },
+      {
+        id: 'r2',
+        sessionId: 's2',
+        projectId: 'p1',
+        stimulusId: 'st1',
+        stimulusText: 'DOLOR',
+        associations: [
+          { rawWord: 'lágrima', generationOrder: 1, rank: 2, timing: { word: 'lágrima', confirmedMs: 3500 } },
+        ],
+        completedAt: '2026-10-13T10:01:00Z',
+        totalGenerationTimeMs: 3500,
+        rankingTimeMs: 1200,
+        wordCount: 1,
+      },
+    ];
+
+    // When corrections are enabled (applyRules = true):
+    // 'lagrimas' and 'lágrima' are unified into 'lágrima' with frequency 2 and valorM = 10 + 9 = 19
+    const correctedResults = calculateTraditionalRSN(responses, [], true);
+    expect(correctedResults.valorJ).toBe(1);
+    expect(correctedResults.definidoras.length).toBe(1);
+    expect(correctedResults.definidoras[0].word).toBe('lágrima');
+    expect(correctedResults.definidoras[0].frequency).toBe(2);
+    expect(correctedResults.definidoras[0].valorM).toBe(19);
+
+    // When corrections are disabled (applyRules = false):
+    // 'lagrimas' and 'lágrima' stay separate words (valorJ = 2)
+    const uncorrectedResults = calculateTraditionalRSN(responses, [], false);
+    expect(uncorrectedResults.valorJ).toBe(2);
+    expect(uncorrectedResults.definidoras.length).toBe(2);
+  });
 });

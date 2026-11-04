@@ -25,6 +25,7 @@ export interface ProjectSettings {
   allowAnonymous: boolean; // default: true
   collectDemographics: boolean; // default: false
   demographicFields: DemographicField[];
+  includeCorrectionsInAnalysis?: boolean; // default: true
 }
 
 export interface Stimulus {
@@ -212,4 +213,133 @@ export interface ComparisonResults {
     valorG: number;
     nucleoSize: number;
   };
+}
+
+// AI-Assisted Semantic Interpretation Output
+export interface ProposedSemanticField {
+  fieldName: string;
+  description: string;
+  words: string[];
+}
+
+export interface StimulusSemanticReport {
+  stimulusId: string;
+  stimulusText: string;
+  participantCount: number;
+  responseCount: number;
+  valorJ: number;
+  valorG: number;
+  maxM: number;
+  screeCutoffIndex: number;
+  concentrationRatio: number; // e.g. % of M weight in core
+  // A. Caracterización General
+  generalCharacterization: string;
+  // B. Núcleos Semánticos y Campos de Significado
+  semanticCores: {
+    centralWords: Array<{ word: string; valorM: number; valorFMG: number; frequency: number }>;
+    secondaryWords: Array<{ word: string; valorM: number; valorFMG: number; frequency: number }>;
+    peripheralWords: Array<{ word: string; valorM: number; valorFMG: number; frequency: number }>;
+    proposedSemanticFields: ProposedSemanticField[];
+    text: string;
+  };
+  // C. Connotación Semántica Predominante
+  connotation: {
+    valenciaTendency: 'positiva' | 'negativa' | 'mixta' | 'neutra';
+    natureTendency: 'corporal' | 'afectiva_emocional' | 'social_relacional' | 'cognitiva_abstracta' | 'mixta';
+    abstractionTendency: 'concreta' | 'abstracta' | 'balanceada';
+    keyEmergentThemes: string[];
+    text: string;
+    psychometricDisclaimer: string;
+  };
+  // D. Relaciones Pathfinder
+  pathfinderAnalysis: {
+    nodeCount: number;
+    edgeCount: number;
+    density: number;
+    hubs: Array<{ word: string; degree: number }>;
+    bridges: Array<{ word: string; role: string }>;
+    isolatedOrLeafs: Array<{ word: string }>;
+    metricDocumentation: {
+      proximityMatrixDescription: string;
+      wMeaning: string;
+      isDistanceOrSimilarity: string;
+      rParam: string;
+      qParam: string;
+    };
+    text: string;
+    structuralDisclaimer: string;
+  };
+  // E. Síntesis Interpretativa (100-150 palabras)
+  synthesis: string;
+}
+
+export interface ComparativeSemanticReport {
+  stimulus1: { id: string; text: string };
+  stimulus2: { id: string; text: string };
+  // A. Comparación Cuantitativa
+  quantitativeTable: {
+    participants1: number;
+    participants2: number;
+    responses1: number;
+    responses2: number;
+    valorJ1: number;
+    valorJ2: number;
+    maxM1: number;
+    maxM2: number;
+    valorG1: number;
+    valorG2: number;
+    sharedCount: number;
+    exclusive1Count: number;
+    exclusive2Count: number;
+    sharedPercentage1: number;
+    sharedPercentage2: number;
+    jaccardIndex: number;
+    pearsonCorrelation: number;
+    pathfinderDensity1: number;
+    pathfinderDensity2: number;
+    pathfinderJointDensity: number;
+  };
+  // B. Análisis de Palabras Compartidas
+  sharedWordsAnalysis: {
+    similarImportance: Array<{ word: string; fmg1: number; fmg2: number; m1: number; m2: number }>;
+    higherInStimulus1: Array<{ word: string; fmg1: number; fmg2: number; m1: number; m2: number }>;
+    higherInStimulus2: Array<{ word: string; fmg1: number; fmg2: number; m1: number; m2: number }>;
+    pathfinderRoles: Array<{ word: string; degreeJoint: number; degree1: number; degree2: number; interpretation: string }>;
+    text: string;
+  };
+  // C. Diferencias en Campos Semánticos
+  semanticFieldsDifferences: {
+    sharedFields: string[];
+    exclusiveFields1: string[];
+    exclusiveFields2: string[];
+    connotationContrast: string;
+    concreteVsAbstractContrast: string;
+    text: string;
+  };
+  // D. Comparación Estructural Pathfinder
+  pathfinderStructuralComparison: {
+    singleGraphConditionChecked: boolean;
+    structuralDifferences: string;
+    jointGraphBridgeRole: string;
+    text: string;
+  };
+  // E. Síntesis Comparativa (150-250 palabras)
+  comparativeSynthesis: string;
+  // F. Limitaciones de la Interpretación
+  limitations: string[];
+}
+
+export interface SemanticInterpretationData {
+  id: string;
+  projectId: string;
+  createdAt: string;
+  updatedAt: string;
+  modelVersion: string;
+  dataVersionFingerprint: string;
+  promptInstructionsVersion: string;
+  status: 'generated' | 'edited_by_admin';
+  stimulusReport1: StimulusSemanticReport;
+  stimulusReport2: StimulusSemanticReport;
+  comparativeReport: ComparativeSemanticReport;
+  adminNotes?: string;
 }

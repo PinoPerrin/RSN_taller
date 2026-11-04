@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Open read and write access for workshop operations and research sessions
+    // Ensures participants and workshop organizers can interact without authorization barriers.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

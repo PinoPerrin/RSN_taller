@@ -13,6 +13,7 @@ import {
   QrCode,
   Radio,
   Tv,
+  Edit3,
   ArrowRight,
   Clock,
   Sparkles,
@@ -26,15 +27,21 @@ export const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     const unsubProjects = storageAdapter.subscribeProjects(setProjects);
-    const unsubSessions = storageAdapter.subscribeSessions('', setSessions);
-    const unsubResponses = storageAdapter.subscribeResponses('', undefined, setResponses);
+    return () => unsubProjects();
+  }, []);
+
+  const activeProject = projects.find(p => p.status === 'published') || projects[0];
+
+  useEffect(() => {
+    if (!activeProject) return;
+    const unsubSessions = storageAdapter.subscribeSessions(activeProject.id, setSessions);
+    const unsubResponses = storageAdapter.subscribeResponses(activeProject.id, undefined, setResponses);
 
     return () => {
-      unsubProjects();
       unsubSessions();
       unsubResponses();
     };
-  }, []);
+  }, [activeProject?.id]);
 
   const totalProjects = projects.length;
   const activeProjects = projects.filter(p => p.status === 'published').length;
@@ -191,6 +198,13 @@ export const AdminDashboard: React.FC = () => {
                           >
                             <QrCode className="w-4 h-4" />
                           </button>
+                          <Link
+                            to={`/admin/projects/${project.id}/corrections`}
+                            className="p-1.5 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                            title="Corrección Manual de Respuestas"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </Link>
                           <Link
                             to={`/admin/projects/${project.id}/live`}
                             className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
