@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "deploy": "vercel --prod"
+    "deploy": "firebase deploy --only hosting",
+    "deploy:vercel": "vercel --prod"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
