@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import cytoscape from 'cytoscape';
 // @ts-ignore
 import cola from 'cytoscape-cola';
@@ -809,6 +809,15 @@ export const PathfinderPage: React.FC = () => {
 
           {/* Export Action Buttons */}
           <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              to={`/admin/projects/${currentProjectId}/interpretation`}
+              className="px-3.5 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all"
+              title="Abrir interpretación semántica cualitativa y cuantitativa con IA"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>Interpretación IA</span>
+            </Link>
+
             <button
               onClick={handleDownloadPNG}
               disabled={!pfResult}

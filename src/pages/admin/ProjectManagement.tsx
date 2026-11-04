@@ -306,6 +306,14 @@ export const ProjectManagement: React.FC = () => {
                     <Edit2 className="w-4 h-4" />
                   </button>
 
+                  <button
+                    onClick={() => navigate(`/admin/projects/${project.id}/interpretation`)}
+                    className="p-2.5 rounded-xl border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors"
+                    title="Interpretación Semántica con IA"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </button>
+
                   {/* Status toggle button */}
                   {project.status === 'published' ? (
                     <button

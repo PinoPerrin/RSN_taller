@@ -75,6 +75,39 @@ export const AdminDashboard: React.FC = () => {
           </Link>
         </div>
 
+        {/* Featured Card: Interpretación Semántica con IA */}
+        {activeProject && (
+          <div className="bg-gradient-to-r from-violet-600 via-indigo-600 to-purple-700 rounded-3xl p-5 text-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 border border-violet-400/20">
+            <div className="flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center shrink-0 border border-white/20 shadow-xs">
+                <Sparkles className="w-6 h-6 text-amber-300" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-extrabold text-base tracking-tight">
+                    Módulo de Interpretación Semántica asistida por IA
+                  </h3>
+                  <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400 text-slate-950">
+                    Nuevo
+                  </span>
+                </div>
+                <p className="text-xs text-violet-100 mt-0.5 max-w-2xl">
+                  Análisis cualitativo y cuantitativo por estímulo, núcleos semánticos, estructura de grafo Pathfinder y comparación semántica con IA.
+                </p>
+              </div>
+            </div>
+
+            <Link
+              to={`/admin/projects/${activeProject.id}/interpretation`}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-white hover:bg-violet-50 text-violet-900 rounded-xl text-xs font-extrabold shadow-sm transition-all shrink-0"
+            >
+              <Sparkles className="w-4 h-4 text-violet-600" />
+              <span>Abrir Interpretación IA</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        )}
+
         {/* Metrics Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-1">
@@ -204,6 +237,13 @@ export const AdminDashboard: React.FC = () => {
                             title="Corrección Manual de Respuestas"
                           >
                             <Edit3 className="w-4 h-4" />
+                          </Link>
+                          <Link
+                            to={`/admin/projects/${project.id}/interpretation`}
+                            className="p-1.5 text-slate-600 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                            title="Interpretación Semántica con IA"
+                          >
+                            <Sparkles className="w-4 h-4 text-violet-600" />
                           </Link>
                           <Link
                             to={`/admin/projects/${project.id}/live`}

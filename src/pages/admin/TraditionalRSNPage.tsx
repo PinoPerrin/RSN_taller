@@ -34,6 +34,7 @@ import {
   Eye,
   ToggleLeft,
   ToggleRight,
+  Sparkles,
 } from 'lucide-react';
 
 export const TraditionalRSNPage: React.FC = () => {
@@ -209,6 +210,16 @@ export const TraditionalRSNPage: React.FC = () => {
               )}
               <span>{applyNormalization ? 'Normalizado' : 'Datos brutos'}</span>
             </button>
+
+            {/* Direct Link to AI Interpretation */}
+            <Link
+              to={`/admin/projects/${projectId}/interpretation`}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-xs transition-all"
+              title="Abrir interpretación semántica cualitativa y cuantitativa con IA"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>Interpretación IA</span>
+            </Link>
           </div>
         </div>
 

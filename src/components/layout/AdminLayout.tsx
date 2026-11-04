@@ -71,7 +71,15 @@ export const AdminLayout: React.FC<Props> = ({ children, activeProjectId }) => {
       await signInAdminWithGoogle();
       setShowAuthModal(false);
     } catch (err: any) {
-      setAuthError(err.message || 'Error al iniciar sesión con Google');
+      if (err.code === 'auth/operation-not-allowed') {
+        setAuthError('El proveedor Google no está habilitado en Firebase Authentication. La autenticación es opcional; la plataforma ya sincroniza y exporta datos sin restricciones.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setAuthError('Dominio no autorizado en Firebase Auth. Tu plataforma ya funciona completamente sin necesidad de iniciar sesión.');
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setAuthError('Ventana de inicio de sesión cerrada.');
+      } else {
+        setAuthError(err.message || 'Error al iniciar sesión con Google');
+      }
     } finally {
       setIsLoggingIn(false);
     }
@@ -117,7 +125,13 @@ export const AdminLayout: React.FC<Props> = ({ children, activeProjectId }) => {
     { label: 'Corrección Manual', path: `/admin/projects/${pId}/corrections`, icon: Edit3 },
     { label: 'Análisis RSN Clásico', path: `/admin/projects/${pId}/traditional`, icon: Network },
     { label: 'Red Pathfinder (SemNet)', path: `/admin/projects/${pId}/pathfinder`, icon: Compass },
-    { label: 'Interpretación Semántica', path: `/admin/projects/${pId}/interpretation`, icon: Sparkles },
+    {
+      label: 'Interpretación Semántica',
+      path: `/admin/projects/${pId}/interpretation`,
+      icon: Sparkles,
+      badge: 'IA',
+      isNew: true,
+    },
     { label: 'Análisis de Grafos', path: `/admin/projects/${pId}/graphs`, icon: Share2 },
     { label: 'Comparación de Redes', path: `/admin/projects/${pId}/compare`, icon: GitCompare },
     { label: 'Normalización Semántica', path: `/admin/projects/${pId}/normalization`, icon: SpellCheck },
@@ -157,14 +171,15 @@ export const AdminLayout: React.FC<Props> = ({ children, activeProjectId }) => {
 
       {/* Sidebar Navigation */}
       <aside
-        className={`fixed md:sticky top-0 left-0 bottom-0 z-40 w-64 bg-slate-900 text-slate-300 flex flex-col justify-between p-4 border-r border-slate-800 transition-transform duration-200 ease-in-out ${
+        className={`fixed md:sticky top-0 left-0 bottom-0 z-40 w-64 h-screen max-h-screen bg-slate-900 text-slate-300 flex flex-col justify-between p-4 border-r border-slate-800 transition-transform duration-200 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
-        <div className="space-y-4">
+        {/* Top Branding & Study Selector */}
+        <div className="shrink-0 space-y-3 pb-2 border-b border-slate-800/80">
           {/* Logo / Title */}
-          <div className="hidden md:flex items-center gap-2.5 px-2 py-1">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-primary-600 to-primary-400 flex items-center justify-center font-black text-white text-base shadow-sm">
+          <div className="hidden md:flex items-center gap-2.5 px-1 py-1">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-primary-600 to-primary-400 flex items-center justify-center font-black text-white text-base shadow-sm shrink-0">
               RSN
             </div>
             <div>
@@ -178,15 +193,15 @@ export const AdminLayout: React.FC<Props> = ({ children, activeProjectId }) => {
           </div>
 
           {/* Project Selector Dropdown */}
-          <div className="pt-1">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 block mb-1">
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 block mb-1">
               Estudio Activo
             </label>
             <div className="relative">
               <select
                 value={pId}
                 onChange={e => handleSelectProject(e.target.value)}
-                className="w-full bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold rounded-xl px-3 py-2.5 pr-8 appearance-none border border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold rounded-xl px-3 py-2 pr-8 appearance-none border border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-primary-500 truncate"
               >
                 {projects.map(p => (
                   <option key={p.id} value={p.id}>
@@ -194,70 +209,87 @@ export const AdminLayout: React.FC<Props> = ({ children, activeProjectId }) => {
                   </option>
                 ))}
               </select>
-              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
+              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
             </div>
           </div>
+        </div>
 
-          {/* Nav Links */}
-          <nav className="space-y-1 pt-1">
+        {/* Scrollable Nav Links Section */}
+        <div className="flex-1 min-h-0 overflow-y-auto py-2 my-1 pr-1 space-y-1">
+          <nav className="space-y-1">
             {navItems.map(item => {
               const Icon = item.icon;
               const isActive = item.exact
                 ? location.pathname === item.path
                 : location.pathname.startsWith(item.path);
 
+              const isSpecial = (item as any).isNew;
+
               return (
                 <Link
                   key={item.path}
                   to={item.path}
                   onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                     isActive
-                      ? 'bg-primary-600 text-white shadow-xs font-bold'
+                      ? isSpecial
+                        ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-xs font-bold'
+                        : 'bg-primary-600 text-white shadow-xs font-bold'
+                      : isSpecial
+                      ? 'text-violet-300 bg-violet-950/40 hover:bg-violet-900/60 hover:text-white border border-violet-500/30'
                       : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                  <span>{item.label}</span>
+                  <div className="flex items-center gap-2.5 truncate">
+                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : isSpecial ? 'text-violet-400' : 'text-slate-400'}`} />
+                    <span className="truncate">{item.label}</span>
+                  </div>
+                  {(item as any).badge && (
+                    <span className="shrink-0 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-violet-500 text-white shadow-xs">
+                      {(item as any).badge}
+                    </span>
+                  )}
                 </Link>
               );
             })}
           </nav>
         </div>
 
-        {/* Sidebar Footer Quick Action: Presentation Mode & Public Link */}
-        <div className="pt-4 border-t border-slate-800/80 space-y-2">
+        {/* Sidebar Footer Quick Action: Presentation Mode, Public Link & Firebase Live Status */}
+        <div className="shrink-0 pt-3 border-t border-slate-800/80 space-y-2">
           {currentProject && (
-            <Link
-              to={`/admin/projects/${pId}/presentation`}
-              target="_blank"
-              className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-indigo-600/90 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
-            >
-              <Tv className="w-3.5 h-3.5" />
-              <span>Modo Presentación</span>
-            </Link>
+            <div className="grid grid-cols-2 gap-1.5">
+              <Link
+                to={`/admin/projects/${pId}/presentation`}
+                target="_blank"
+                className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-indigo-600/90 hover:bg-indigo-600 text-white rounded-xl text-[11px] font-bold transition-all shadow-xs"
+                title="Abrir vista para proyector"
+              >
+                <Tv className="w-3.5 h-3.5" />
+                <span>Presentación</span>
+              </Link>
+
+              <a
+                href={`/p/${currentProject.publicId || currentProject.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white rounded-xl text-[11px] font-medium transition-colors"
+                title="Abrir pantalla del participante"
+              >
+                <ExternalLink className="w-3 h-3 text-slate-400" />
+                <span>Participante</span>
+              </a>
+            </div>
           )}
 
-          {currentProject && (
-            <a
-              href={`/p/${currentProject.publicId || currentProject.id}`}
-              target="_blank"
-              rel="noreferrer"
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white rounded-xl text-[11px] font-medium transition-colors"
-            >
-              <ExternalLink className="w-3 h-3 text-slate-400" />
-              <span>Vista Participante</span>
-            </a>
-          )}
-
-          {/* Admin Authentication Status Badge */}
-          <div className="pt-2">
+          {/* Firebase Cloud Connection Status */}
+          <div className="pt-1">
             {adminUser && !adminUser.isAnonymous ? (
               <div className="bg-slate-800/90 rounded-xl p-2.5 text-xs border border-emerald-500/40 shadow-xs">
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
                     <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>Admin Activo</span>
+                    <span>Admin Autenticado</span>
                   </div>
                   <button
                     onClick={() => signOutAdmin()}
@@ -272,21 +304,17 @@ export const AdminLayout: React.FC<Props> = ({ children, activeProjectId }) => {
                 </p>
               </div>
             ) : (
-              <div className="bg-slate-800/50 rounded-xl p-2.5 text-xs border border-amber-500/30">
-                <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px] mb-1">
-                  <ShieldAlert className="w-3.5 h-3.5" />
-                  <span>Modo no autenticado</span>
+              <div className="bg-slate-800/60 rounded-xl p-2.5 text-xs border border-emerald-500/30">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Nube Sincronizada</span>
+                  </div>
+                  <span className="text-[9px] font-mono text-emerald-400/90 font-bold">Firebase</span>
                 </div>
-                <p className="text-[10px] text-slate-400 leading-tight mb-2">
-                  Inicia sesión para sincronizar datos y exportar respuestas.
+                <p className="text-[10px] text-slate-400 leading-tight">
+                  Taller en vivo activo (rsn-taller). Captura, análisis y exportación listos en la nube.
                 </p>
-                <button
-                  onClick={() => { setShowAuthModal(true); setAuthError(''); }}
-                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-primary-600 hover:bg-primary-500 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
-                >
-                  <LogIn className="w-3 h-3" />
-                  <span>Autenticar Admin</span>
-                </button>
               </div>
             )}
           </div>
@@ -320,8 +348,15 @@ export const AdminLayout: React.FC<Props> = ({ children, activeProjectId }) => {
               </button>
             </div>
 
+            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200/80 rounded-xl text-xs text-emerald-800 flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <p>
+                <strong>Nota:</strong> Tu plataforma ya está sincronizando en vivo con Cloud Firestore. Esta autenticación es opcional.
+              </p>
+            </div>
+
             {authError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
                 {authError}
               </div>
             )}
