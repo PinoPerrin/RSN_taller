@@ -40,6 +40,9 @@ export interface Stimulus {
 export interface Project {
   id: string;
   publicId: string;
+  ownerUid?: string; // UID of creator ('admin' or specific user UID)
+  ownerEmail?: string;
+  isArchived?: boolean;
   title: string;
   description: string;
   researcher: string;
@@ -343,3 +346,79 @@ export interface SemanticInterpretationData {
   comparativeReport: ComparativeSemanticReport;
   adminNotes?: string;
 }
+
+// User Profiles and Authentication
+export type UserRole = 'admin' | 'registered_user';
+export type UserStatus = 'active' | 'suspended';
+export type MotivoUso =
+  | 'practica_academica'
+  | 'investigacion'
+  | 'tesis'
+  | 'docencia'
+  | 'exploracion_personal'
+  | 'otro';
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  nombre?: string;
+  institucion: string;
+  semestre_nivel: string;
+  motivo_uso: MotivoUso;
+  motivo_detalle?: string;
+  role: UserRole;
+  status: UserStatus;
+  termsAccepted: boolean;
+  termsVersion: string;
+  privacyAccepted: boolean;
+  createdAt: string;
+  lastLoginAt: string;
+}
+
+// Feedback and Support
+export type FeedbackType = 'comment' | 'suggestion' | 'bug' | 'doubt';
+export type FeedbackStatus = 'recibido' | 'en_revision' | 'resuelto' | 'cerrado';
+
+export interface FeedbackItem {
+  id: string;
+  uid: string;
+  userEmail: string;
+  userName?: string;
+  userInstitution?: string;
+  type: FeedbackType;
+  subject: string;
+  description: string;
+  relatedProjectId?: string;
+  relatedProjectTitle?: string;
+  status: FeedbackStatus;
+  adminResponse?: string;
+  adminResponseAt?: string;
+  internalNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Audit Logs for administrative actions
+export interface AuditLog {
+  id: string;
+  adminUid: string;
+  adminEmail?: string;
+  action: string;
+  targetType: 'user' | 'project' | 'feedback' | 'system';
+  targetId: string;
+  details?: string;
+  timestamp: string;
+}
+
+// System Aggregated Statistics
+export interface SystemStats {
+  totalUsers: number;
+  recentRegistrations: number;
+  activeUsers: number;
+  totalProjects: number;
+  totalStimuli: number;
+  totalResponses: number;
+  pendingFeedback: number;
+  lastCalculatedAt: string;
+}
+

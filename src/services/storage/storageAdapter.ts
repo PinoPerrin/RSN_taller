@@ -7,6 +7,12 @@ import {
   NormalizationRule,
   ProjectStatus,
   SemanticInterpretationData,
+  UserProfile,
+  UserStatus,
+  FeedbackItem,
+  FeedbackStatus,
+  AuditLog,
+  SystemStats,
 } from '../../types';
 import { db, isFirebaseConfigured, ensureAnonymousAuth } from '../firebase';
 import {
@@ -40,6 +46,9 @@ const KEYS = {
   RULES: `${STORAGE_PREFIX}rules`,
   DELETED_PROJECTS: `${STORAGE_PREFIX}deleted_projects`,
   INTERPRETATIONS: `${STORAGE_PREFIX}interpretations`,
+  USER_PROFILES: `${STORAGE_PREFIX}user_profiles`,
+  FEEDBACK: `${STORAGE_PREFIX}feedback`,
+  AUDIT_LOGS: `${STORAGE_PREFIX}audit_logs`,
 };
 
 const memoryStore = new Map<string, string>();
@@ -285,6 +294,45 @@ class LocalDatabase {
       console.warn('Error saving interpretation locally:', err);
     }
   }
+
+  getUserProfiles(): UserProfile[] {
+    try {
+      return JSON.parse(safeStorage.getItem(KEYS.USER_PROFILES) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  saveUserProfiles(profiles: UserProfile[]) {
+    safeStorage.setItem(KEYS.USER_PROFILES, JSON.stringify(profiles));
+    this.notify();
+  }
+
+  getFeedback(): FeedbackItem[] {
+    try {
+      return JSON.parse(safeStorage.getItem(KEYS.FEEDBACK) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  saveFeedback(items: FeedbackItem[]) {
+    safeStorage.setItem(KEYS.FEEDBACK, JSON.stringify(items));
+    this.notify();
+  }
+
+  getAuditLogs(): AuditLog[] {
+    try {
+      return JSON.parse(safeStorage.getItem(KEYS.AUDIT_LOGS) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  saveAuditLogs(logs: AuditLog[]) {
+    safeStorage.setItem(KEYS.AUDIT_LOGS, JSON.stringify(logs));
+    this.notify();
+  }
 }
 
 export const localDB = new LocalDatabase();
@@ -353,6 +401,28 @@ export const storageAdapter = {
       if (unsubFirestore) unsubFirestore();
       unsubLocal();
     };
+  },
+
+  /**
+   * Synchronously get all active projects from local store
+   */
+  getProjects(): Project[] {
+    const deleted = getDeletedProjectIds();
+    return localDB.getProjects().filter(p => !deleted.has(p.id) && !deleted.has(p.publicId));
+  },
+
+  /**
+   * Synchronously get responses from local store
+   */
+  getResponses(projectId?: string): StimulusResponse[] {
+    return localDB.getResponses(projectId);
+  },
+
+  /**
+   * Synchronously get stimuli from local store
+   */
+  getStimuliSync(projectId?: string): Stimulus[] {
+    return localDB.getStimuli(projectId);
   },
 
   /**
@@ -1339,6 +1409,312 @@ export const storageAdapter = {
     return localDB.subscribe(() => {
       callback(localDB.getInterpretation(pId));
     });
+  },
+
+  // -----------------------------------------------------------
+  // USER PROFILES & USER PROJECTS
+  // -----------------------------------------------------------
+
+  async getUserProfile(uid: string): Promise<UserProfile | null> {
+    if (!uid) return null;
+    if (isFirebaseConfigured && db) {
+      try {
+        const snap = await withTimeout(getDoc(doc(db, 'userProfiles', uid)));
+        if (snap.exists()) {
+          return snap.data() as UserProfile;
+        }
+      } catch (err) {
+        console.warn('Firestore getUserProfile error, checking locally:', err);
+      }
+    }
+    const profiles = localDB.getUserProfiles();
+    return profiles.find(p => p.uid === uid) || null;
+  },
+
+  async saveUserProfile(profile: UserProfile): Promise<void> {
+    const updatedAt = new Date().toISOString();
+    const finalProfile: UserProfile = { ...profile, lastLoginAt: updatedAt };
+
+    // 1. Save locally
+    const profiles = localDB.getUserProfiles();
+    const idx = profiles.findIndex(p => p.uid === profile.uid);
+    if (idx >= 0) {
+      profiles[idx] = finalProfile;
+    } else {
+      profiles.push(finalProfile);
+    }
+    localDB.saveUserProfiles(profiles);
+
+    // 2. Persist to Firestore
+    if (isFirebaseConfigured && db) {
+      try {
+        await withTimeout(setDoc(doc(db, 'userProfiles', profile.uid), finalProfile, { merge: true }));
+      } catch (err) {
+        console.warn('Firestore saveUserProfile error, saved locally:', err);
+      }
+    }
+  },
+
+  async getAllUserProfiles(): Promise<UserProfile[]> {
+    if (isFirebaseConfigured && db) {
+      try {
+        const snap = await withTimeout(getDocs(collection(db, 'userProfiles')));
+        if (!snap.empty) {
+          const list = snap.docs.map(d => d.data() as UserProfile);
+          // Merge with local profiles
+          const localList = localDB.getUserProfiles();
+          const map = new Map<string, UserProfile>();
+          localList.forEach(p => map.set(p.uid, p));
+          list.forEach(p => map.set(p.uid, p));
+          return Array.from(map.values());
+        }
+      } catch (err) {
+        console.warn('Firestore getAllUserProfiles error, returning local:', err);
+      }
+    }
+    return localDB.getUserProfiles();
+  },
+
+  async updateUserStatus(uid: string, status: UserStatus): Promise<void> {
+    const profiles = localDB.getUserProfiles();
+    const found = profiles.find(p => p.uid === uid);
+    if (found) {
+      found.status = status;
+      localDB.saveUserProfiles(profiles);
+    }
+
+    if (isFirebaseConfigured && db) {
+      try {
+        await withTimeout(updateDoc(doc(db, 'userProfiles', uid), { status }));
+      } catch (err) {
+        console.warn('Firestore updateUserStatus error:', err);
+      }
+    }
+  },
+
+  subscribeUserProjects(uid: string, callback: (projects: Project[]) => void): () => void {
+    const filterUserProjects = (all: Project[]) => {
+      const deleted = getDeletedProjectIds();
+      return all.filter(p => !deleted.has(p.id) && !deleted.has(p.publicId) && p.ownerUid === uid);
+    };
+
+    const emitUserProjects = (firestoreList?: Project[]) => {
+      const deleted = getDeletedProjectIds();
+      const localList = localDB.getProjects().filter(p => !deleted.has(p.id) && !deleted.has(p.publicId));
+
+      let merged: Project[] = [];
+      if (!firestoreList) {
+        merged = localList;
+      } else {
+        const validFirestoreList = firestoreList.filter(p => !deleted.has(p.id) && !deleted.has(p.publicId));
+        const map = new Map<string, Project>();
+        localList.forEach(p => map.set(p.id, p));
+        validFirestoreList.forEach(p => map.set(p.id, p));
+        merged = Array.from(map.values());
+      }
+      callback(filterUserProjects(merged));
+    };
+
+    emitUserProjects();
+
+    let unsubFirestore: (() => void) | null = null;
+    if (isFirebaseConfigured && db && uid) {
+      try {
+        const q = query(collection(db, 'projects'), where('ownerUid', '==', uid));
+        unsubFirestore = onSnapshot(
+          q,
+          snapshot => {
+            const list = snapshot.docs.map(doc => doc.data() as Project);
+            emitUserProjects(list);
+          },
+          err => {
+            console.warn('Firestore user projects subscription error:', err);
+            emitUserProjects();
+          }
+        );
+      } catch {
+        emitUserProjects();
+      }
+    }
+
+    const unsubLocal = localDB.subscribe(() => {
+      emitUserProjects();
+    });
+
+    return () => {
+      if (unsubFirestore) unsubFirestore();
+      unsubLocal();
+    };
+  },
+
+  // -----------------------------------------------------------
+  // FEEDBACK & SUPPORT TICKETS
+  // -----------------------------------------------------------
+
+  async submitFeedback(
+    item: Omit<FeedbackItem, 'id' | 'createdAt' | 'updatedAt' | 'status'>
+  ): Promise<FeedbackItem> {
+    const id = `fb_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = new Date().toISOString();
+    const newFeedback: FeedbackItem = {
+      ...item,
+      id,
+      status: 'recibido',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // 1. Save locally
+    const items = localDB.getFeedback();
+    items.unshift(newFeedback);
+    localDB.saveFeedback(items);
+
+    // 2. Persist to Firestore
+    if (isFirebaseConfigured && db) {
+      try {
+        await withTimeout(setDoc(doc(db, 'feedback', id), newFeedback));
+      } catch (err) {
+        console.warn('Firestore submitFeedback error, saved locally:', err);
+      }
+    }
+
+    return newFeedback;
+  },
+
+  async getUserFeedback(uid: string): Promise<FeedbackItem[]> {
+    if (isFirebaseConfigured && db && uid) {
+      try {
+        const q = query(collection(db, 'feedback'), where('uid', '==', uid));
+        const snap = await withTimeout(getDocs(q));
+        if (!snap.empty) {
+          return snap.docs.map(d => d.data() as FeedbackItem);
+        }
+      } catch (err) {
+        console.warn('Firestore getUserFeedback error, fallback local:', err);
+      }
+    }
+    return localDB.getFeedback().filter(f => f.uid === uid);
+  },
+
+  async getAllFeedback(): Promise<FeedbackItem[]> {
+    if (isFirebaseConfigured && db) {
+      try {
+        const snap = await withTimeout(getDocs(collection(db, 'feedback')));
+        if (!snap.empty) {
+          const list = snap.docs.map(d => d.data() as FeedbackItem);
+          const localList = localDB.getFeedback();
+          const map = new Map<string, FeedbackItem>();
+          localList.forEach(f => map.set(f.id, f));
+          list.forEach(f => map.set(f.id, f));
+          return Array.from(map.values()).sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+        }
+      } catch (err) {
+        console.warn('Firestore getAllFeedback error, fallback local:', err);
+      }
+    }
+    return localDB.getFeedback();
+  },
+
+  async updateFeedbackStatus(
+    id: string,
+    status: FeedbackStatus,
+    adminResponse?: string,
+    internalNotes?: string
+  ): Promise<void> {
+    const updatedAt = new Date().toISOString();
+    const items = localDB.getFeedback();
+    const found = items.find(f => f.id === id);
+    if (found) {
+      found.status = status;
+      found.updatedAt = updatedAt;
+      if (adminResponse !== undefined) {
+        found.adminResponse = adminResponse;
+        found.adminResponseAt = updatedAt;
+      }
+      if (internalNotes !== undefined) found.internalNotes = internalNotes;
+      localDB.saveFeedback(items);
+    }
+
+    if (isFirebaseConfigured && db) {
+      try {
+        const payload: Record<string, any> = { status, updatedAt };
+        if (adminResponse !== undefined) {
+          payload.adminResponse = adminResponse;
+          payload.adminResponseAt = updatedAt;
+        }
+        if (internalNotes !== undefined) payload.internalNotes = internalNotes;
+        await withTimeout(updateDoc(doc(db, 'feedback', id), payload));
+      } catch (err) {
+        console.warn('Firestore updateFeedbackStatus error:', err);
+      }
+    }
+  },
+
+  // -----------------------------------------------------------
+  // AUDIT LOGS & SYSTEM STATS
+  // -----------------------------------------------------------
+
+  async logAdminAction(action: Omit<AuditLog, 'id' | 'timestamp'>): Promise<void> {
+    const id = `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const newLog: AuditLog = {
+      ...action,
+      id,
+      timestamp: new Date().toISOString(),
+    };
+
+    const logs = localDB.getAuditLogs();
+    logs.unshift(newLog);
+    localDB.saveAuditLogs(logs.slice(0, 500)); // Keep last 500 locally
+
+    if (isFirebaseConfigured && db) {
+      try {
+        await withTimeout(setDoc(doc(db, 'auditLogs', id), newLog));
+      } catch (err) {
+        console.warn('Firestore logAdminAction error:', err);
+      }
+    }
+  },
+
+  async getAuditLogs(limitCount = 100): Promise<AuditLog[]> {
+    if (isFirebaseConfigured && db) {
+      try {
+        const snap = await withTimeout(getDocs(collection(db, 'auditLogs')));
+        if (!snap.empty) {
+          return snap.docs
+            .map(d => d.data() as AuditLog)
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            .slice(0, limitCount);
+        }
+      } catch (err) {
+        console.warn('Firestore getAuditLogs error, local fallback:', err);
+      }
+    }
+    return localDB.getAuditLogs().slice(0, limitCount);
+  },
+
+  async getSystemStats(): Promise<SystemStats> {
+    const allUsers = await this.getAllUserProfiles();
+    const allProjects = localDB.getProjects();
+    const allFeedback = await this.getAllFeedback();
+    const allResponses = localDB.getResponses();
+
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const recentRegs = allUsers.filter(u => new Date(u.createdAt).getTime() >= sevenDaysAgo).length;
+    const activeU = allUsers.filter(u => new Date(u.lastLoginAt || 0).getTime() >= sevenDaysAgo).length;
+    const pendingF = allFeedback.filter(f => f.status === 'recibido' || f.status === 'en_revision').length;
+
+    return {
+      totalUsers: allUsers.length,
+      recentRegistrations: recentRegs,
+      activeUsers: Math.max(activeU, allUsers.length > 0 ? 1 : 0),
+      totalProjects: allProjects.length,
+      totalStimuli: localDB.getStimuli().length,
+      totalResponses: allResponses.length,
+      pendingFeedback: pendingF,
+      lastCalculatedAt: new Date().toISOString(),
+    };
   },
 };
 

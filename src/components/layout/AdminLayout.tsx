@@ -34,6 +34,8 @@ import {
   LogOut,
   Mail,
   Lock,
+  BarChart3,
+  MessageSquare,
 } from 'lucide-react';
 
 interface Props {
@@ -119,7 +121,11 @@ export const AdminLayout: React.FC<Props> = ({ children, activeProjectId }) => {
 
   const navItems = [
     { label: 'Dashboard General', path: '/admin', icon: LayoutDashboard, exact: true },
-    { label: 'Proyectos', path: '/admin/projects', icon: FolderKanban },
+    { label: 'Usuarios Registrados', path: '/admin/users', icon: Users },
+    { label: 'Proyectos de Usuarios', path: '/admin/user-projects', icon: FolderKanban },
+    { label: 'Bandeja de Soporte', path: '/admin/support', icon: MessageSquare },
+    { label: 'Estadísticas y Auditoría', path: '/admin/stats', icon: BarChart3 },
+    { label: 'Proyectos (Taller)', path: '/admin/projects', icon: FolderKanban },
     { label: 'Sala en Vivo (Taller)', path: `/admin/projects/${pId}/live`, icon: Radio },
     { label: 'Participantes y Calidad', path: `/admin/projects/${pId}/responses`, icon: Users },
     { label: 'Corrección Manual', path: `/admin/projects/${pId}/corrections`, icon: Edit3 },
@@ -281,6 +287,17 @@ export const AdminLayout: React.FC<Props> = ({ children, activeProjectId }) => {
               </a>
             </div>
           )}
+
+          {/* Link to User Portal */}
+          <div>
+            <Link
+              to="/app"
+              className="flex items-center justify-center gap-1.5 py-1.5 px-2 bg-primary-600/20 hover:bg-primary-600/30 text-primary-300 rounded-xl text-[11px] font-bold border border-primary-500/30 transition-colors w-full"
+            >
+              <span>Ir a Portal de Usuario</span>
+              <ExternalLink className="w-3 h-3" />
+            </Link>
+          </div>
 
           {/* Firebase Cloud Connection Status */}
           <div className="pt-1">

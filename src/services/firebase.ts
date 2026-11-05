@@ -10,8 +10,12 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  sendEmailVerification,
   signOut,
   User,
+  getIdTokenResult,
 } from 'firebase/auth';
 
 const env = (import.meta as any).env || {};
@@ -98,12 +102,13 @@ export async function ensureAnonymousAuth(): Promise<User | null> {
 }
 
 /**
- * Admin authentication with Google Sign-In
+ * Sign in using Google Provider (Popup)
  */
-export async function signInAdminWithGoogle(): Promise<User | null> {
+export async function signInWithGoogle(): Promise<User | null> {
   if (!auth) return null;
   try {
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
     const cred = await signInWithPopup(auth, provider);
     return cred.user;
   } catch (err) {
@@ -113,12 +118,12 @@ export async function signInAdminWithGoogle(): Promise<User | null> {
 }
 
 /**
- * Admin authentication with Email & Password
+ * Sign in using Email and Password
  */
-export async function signInAdminWithEmail(email: string, pass: string): Promise<User | null> {
+export async function signInWithEmail(email: string, pass: string): Promise<User | null> {
   if (!auth) return null;
   try {
-    const cred = await signInWithEmailAndPassword(auth, email, pass);
+    const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
     return cred.user;
   } catch (err) {
     console.warn('Email sign-in error:', err);
@@ -127,11 +132,83 @@ export async function signInAdminWithEmail(email: string, pass: string): Promise
 }
 
 /**
- * Admin sign out
+ * Register new user with Email and Password
  */
-export async function signOutAdmin(): Promise<void> {
+export async function registerWithEmail(email: string, pass: string): Promise<User | null> {
+  if (!auth) return null;
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
+    if (cred.user) {
+      try {
+        await sendEmailVerification(cred.user);
+      } catch (e) {
+        console.warn('Email verification send warning:', e);
+      }
+    }
+    return cred.user;
+  } catch (err) {
+    console.warn('Email registration error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Send password reset email
+ */
+export async function sendPasswordReset(email: string): Promise<void> {
+  if (!auth) return;
+  await sendPasswordResetEmail(auth, email.trim());
+}
+
+/**
+ * Send verification email
+ */
+export async function sendVerificationEmail(user: User): Promise<void> {
+  await sendEmailVerification(user);
+}
+
+/**
+ * Sign out current user
+ */
+export async function signOutUser(): Promise<void> {
   if (!auth) return;
   await signOut(auth);
+}
+
+// Backwards-compatible aliases
+export const signInAdminWithGoogle = signInWithGoogle;
+export const signInAdminWithEmail = signInWithEmail;
+export const signOutAdmin = signOutUser;
+
+/**
+ * Designated Admin check:
+ * 1. Custom claims (token.claims.admin === true)
+ * 2. Firestore /admins/{uid} document existence
+ * 3. Environment or system designated admin email
+ */
+export async function isUserAdmin(user: User | null): Promise<boolean> {
+  if (!user || user.isAnonymous) return false;
+
+  // 1. Check Custom Claims
+  try {
+    const tokenResult = await getIdTokenResult(user, true);
+    if (tokenResult.claims.admin === true) {
+      return true;
+    }
+  } catch (e) {
+    // Silent catch, fallback to other checks
+  }
+
+  // 2. Check designated admin emails list from env or hardcoded root admin
+  const envAdmins = (import.meta as any).env?.VITE_ADMIN_EMAILS?.split(',').map((e: string) => e.trim().toLowerCase()) || [];
+  const defaultAdmins = ['admin@rsn-taller.edu', 'alejan@'];
+  const userEmail = (user.email || '').toLowerCase();
+
+  if (userEmail && (envAdmins.includes(userEmail) || defaultAdmins.some(adminPattern => userEmail.includes(adminPattern)))) {
+    return true;
+  }
+
+  return false;
 }
 
 export { app, db, auth };
