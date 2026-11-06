@@ -24,10 +24,10 @@ export const LoginPage: React.FC = () => {
   // Redirect if already authenticated
   React.useEffect(() => {
     if (user && !user.isAnonymous) {
-      if (!isProfileComplete) {
-        navigate('/complete-profile');
-      } else if (isAdmin) {
+      if (isAdmin) {
         navigate('/admin');
+      } else if (!isProfileComplete) {
+        navigate('/complete-profile');
       } else {
         navigate('/app');
       }

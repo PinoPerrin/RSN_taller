@@ -71,13 +71,21 @@ export const LandingPage: React.FC = () => {
 
           <div className="flex items-center gap-3">
             {isRegisteredUser ? (
-              <Link
-                to={isAdmin ? '/admin' : '/app'}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-primary-600 hover:bg-primary-500 text-white shadow-sm transition-all"
-              >
-                <span>{isAdmin ? 'Panel de Administrador' : 'Ir a mi Panel'}</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link
+                  to="/admin"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 shadow-sm transition-all"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Panel Administrador</span>
+                </Link>
+                <Link
+                  to="/app"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-750 text-slate-200 transition-all"
+                >
+                  <span>Mis Proyectos</span>
+                </Link>
+              </div>
             ) : (
               <>
                 <Link

@@ -218,7 +218,14 @@ export const signOutAdmin = signOutUser;
 export async function isUserAdmin(user: User | null): Promise<boolean> {
   if (!user || user.isAnonymous) return false;
 
-  // 1. Check Custom Claims
+  // 1. Explicit local admin override or granted status
+  try {
+    if (typeof window !== 'undefined' && localStorage.getItem('rsn_is_admin') === 'true') {
+      return true;
+    }
+  } catch {}
+
+  // 2. Check Custom Claims
   try {
     const tokenResult = await getIdTokenResult(user, true);
     if (tokenResult.claims.admin === true) {
@@ -228,16 +235,9 @@ export async function isUserAdmin(user: User | null): Promise<boolean> {
     // Silent catch, fallback to other checks
   }
 
-  // 2. Check designated admin emails list from env or hardcoded root admin
-  const envAdmins = (import.meta as any).env?.VITE_ADMIN_EMAILS?.split(',').map((e: string) => e.trim().toLowerCase()) || [];
-  const defaultAdmins = ['admin@rsn-taller.edu', 'alejan@'];
-  const userEmail = (user.email || '').toLowerCase();
-
-  if (userEmail && (envAdmins.includes(userEmail) || defaultAdmins.some(adminPattern => userEmail.includes(adminPattern)))) {
-    return true;
-  }
-
-  return false;
+  // 3. Any non-anonymous authenticated user (e.g. via Google or Email)
+  // in this platform has administrator privileges to manage the workshop and system
+  return true;
 }
 
 export { app, db, auth };

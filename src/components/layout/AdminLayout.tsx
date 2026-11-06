@@ -198,6 +198,18 @@ export const AdminLayout: React.FC<Props> = ({ children, activeProjectId }) => {
             </div>
           </div>
 
+          {/* Switch to User Portal */}
+          <Link
+            to="/app"
+            className="flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700/60 transition-all"
+          >
+            <div className="flex items-center gap-2">
+              <FolderKanban className="w-3.5 h-3.5 text-primary-400" />
+              <span>Portal de Usuarios</span>
+            </div>
+            <ExternalLink className="w-3 h-3 text-slate-400" />
+          </Link>
+
           {/* Project Selector Dropdown */}
           <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 block mb-1">

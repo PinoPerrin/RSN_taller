@@ -40,11 +40,9 @@ export const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({ children
     );
   }
 
-  // To preserve backwards compatibility during workshop or dev mode:
-  // If user is not authenticated yet or not admin, we allow fallback view or redirect to login.
-  // When an admin logs in, they get full admin access.
-  if (user && !user.isAnonymous && !isAdmin) {
-    return <Navigate to="/app" replace />;
+  // Anonymous participants cannot access admin panel
+  if (user && user.isAnonymous) {
+    return <Navigate to="/login" replace />;
   }
 
   return <>{children}</>;

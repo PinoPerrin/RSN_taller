@@ -36,6 +36,11 @@ export const CompleteProfilePage: React.FC = () => {
       return;
     }
 
+    if (isAdmin) {
+      navigate('/admin');
+      return;
+    }
+
     if (profile) {
       setInstitucion(profile.institucion || '');
       setSemestreNivel(profile.semestre_nivel || 'No aplica');
