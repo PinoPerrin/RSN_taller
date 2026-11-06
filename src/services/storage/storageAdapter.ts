@@ -1479,14 +1479,23 @@ export const storageAdapter = {
   },
 
   subscribeUserProjects(uid: string, callback: (projects: Project[]) => void): () => void {
+    if (!uid) {
+      callback([]);
+      return () => {};
+    }
+
     const filterUserProjects = (all: Project[]) => {
       const deleted = getDeletedProjectIds();
-      return all.filter(p => !deleted.has(p.id) && !deleted.has(p.publicId) && p.ownerUid === uid);
+      return all.filter(
+        p => !deleted.has(p.id) && !deleted.has(p.publicId) && p.ownerUid === uid && Boolean(p.ownerUid)
+      );
     };
 
     const emitUserProjects = (firestoreList?: Project[]) => {
       const deleted = getDeletedProjectIds();
-      const localList = localDB.getProjects().filter(p => !deleted.has(p.id) && !deleted.has(p.publicId));
+      const localList = localDB
+        .getProjects()
+        .filter(p => !deleted.has(p.id) && !deleted.has(p.publicId) && p.ownerUid === uid && Boolean(p.ownerUid));
 
       let merged: Project[] = [];
       if (!firestoreList) {

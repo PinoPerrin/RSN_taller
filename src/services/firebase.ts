@@ -209,23 +209,27 @@ export const signInAdminWithGoogle = signInWithGoogle;
 export const signInAdminWithEmail = signInWithEmail;
 export const signOutAdmin = signOutUser;
 
+// Whitelist of root administrators
+export const ROOT_ADMIN_EMAILS = [
+  'alejandroarnaud@gmail.com',
+  'admin@rsn-taller.edu',
+  'investigador@rsn.app',
+];
+
+export const ROOT_ADMIN_UIDS = [
+  'aHUkYhfiSbXtDKfqAFqBAPHd50P2',
+];
+
 /**
  * Designated Admin check:
  * 1. Custom claims (token.claims.admin === true)
  * 2. Firestore /admins/{uid} document existence
- * 3. Environment or system designated admin email
+ * 3. Verified Root Admin UID or Email whitelist
  */
 export async function isUserAdmin(user: User | null): Promise<boolean> {
   if (!user || user.isAnonymous) return false;
 
-  // 1. Explicit local admin override or granted status
-  try {
-    if (typeof window !== 'undefined' && localStorage.getItem('rsn_is_admin') === 'true') {
-      return true;
-    }
-  } catch {}
-
-  // 2. Check Custom Claims
+  // 1. Check Custom Claims
   try {
     const tokenResult = await getIdTokenResult(user, true);
     if (tokenResult.claims.admin === true) {
@@ -235,9 +239,22 @@ export async function isUserAdmin(user: User | null): Promise<boolean> {
     // Silent catch, fallback to other checks
   }
 
-  // 3. Any non-anonymous authenticated user (e.g. via Google or Email)
-  // in this platform has administrator privileges to manage the workshop and system
-  return true;
+  // 2. Verified Root Admin UID
+  if (user.uid && ROOT_ADMIN_UIDS.includes(user.uid)) {
+    return true;
+  }
+
+  // 3. Verified Admin Email Whitelist
+  const envAdmins = (import.meta as any).env?.VITE_ADMIN_EMAILS?.split(',').map((e: string) => e.trim().toLowerCase()) || [];
+  const allowedEmails = [...ROOT_ADMIN_EMAILS, ...envAdmins].map(e => e.toLowerCase());
+  const userEmail = (user.email || '').toLowerCase().trim();
+
+  if (userEmail && allowedEmails.includes(userEmail)) {
+    return true;
+  }
+
+  // Regular registered users (e.g. students, invited researchers) are NOT admins
+  return false;
 }
 
 export { app, db, auth };

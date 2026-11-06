@@ -40,9 +40,14 @@ export const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({ children
     );
   }
 
-  // Anonymous participants cannot access admin panel
-  if (user && user.isAnonymous) {
-    return <Navigate to="/login" replace />;
+  // 1. Must be authenticated
+  if (!user || user.isAnonymous) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // 2. Must be verified Administrator. Regular users are strictly redirected to their private user portal
+  if (!isAdmin) {
+    return <Navigate to="/app" replace />;
   }
 
   return <>{children}</>;

@@ -142,17 +142,19 @@ export const UserLayout: React.FC<Props> = ({ children, activeProjectId }) => {
             </div>
           </div>
 
-          {/* Direct Switch to Admin Dashboard */}
-          <Link
-            to="/admin"
-            className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-all shadow-xs"
-          >
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-amber-400" />
-              <span>Panel de Administrador</span>
-            </div>
-            <ExternalLink className="w-3.5 h-3.5 text-amber-400/80" />
-          </Link>
+          {/* Direct Switch to Admin Dashboard (strictly only for verified root admins) */}
+          {isAdmin && (
+            <Link
+              to="/admin"
+              className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition-all shadow-xs"
+            >
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <span>Panel de Administrador</span>
+              </div>
+              <ExternalLink className="w-3.5 h-3.5 text-amber-400/80" />
+            </Link>
+          )}
 
           {/* User's Project Selector */}
           <div>
