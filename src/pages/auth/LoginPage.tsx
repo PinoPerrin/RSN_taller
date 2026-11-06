@@ -63,7 +63,9 @@ export const LoginPage: React.FC = () => {
     try {
       await loginWithEmail(email, password);
     } catch (err: any) {
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('El método de inicio de sesión con correo y contraseña no está habilitado en Firebase. Debe habilitarse en la consola de Firebase.');
+      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
         setError('Correo o contraseña incorrectos.');
       } else if (err.code === 'auth/too-many-requests') {
         setError('Demasiados intentos fallidos. Por favor intenta más tarde o restablece tu contraseña.');

@@ -43,6 +43,10 @@ export const RegisterPage: React.FC = () => {
     } catch (err: any) {
       if (err.code === 'auth/popup-closed-by-user') {
         setError('Ventana de autenticación cerrada.');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setError('El proveedor de Google no está habilitado en Firebase Authentication. Actívalo en la consola de Firebase.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError('Este dominio no está autorizado en Firebase Authentication. Agrega el dominio en la consola de Firebase.');
       } else {
         setError(err.message || 'Error al registrar con Google.');
       }
@@ -73,12 +77,14 @@ export const RegisterPage: React.FC = () => {
         navigate('/complete-profile');
       }
     } catch (err: any) {
-      if (err.code === 'auth/email-already-in-use') {
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('El método de registro con correo y contraseña no está habilitado en Firebase. Debe habilitarse en la consola de Firebase (Authentication > Sign-in method > Correo electrónico/contraseña).');
+      } else if (err.code === 'auth/email-already-in-use') {
         setError('Este correo electrónico ya está registrado. Por favor inicia sesión.');
       } else if (err.code === 'auth/invalid-email') {
         setError('El formato del correo electrónico no es válido.');
       } else if (err.code === 'auth/weak-password') {
-        setError('La contraseña es muy débil. Debe incluir letras y números.');
+        setError('La contraseña es muy débil. Debe incluir al menos 6 caracteres.');
       } else {
         setError(err.message || 'Error al crear la cuenta.');
       }
