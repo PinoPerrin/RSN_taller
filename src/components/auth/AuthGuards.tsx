@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Loader2 } from 'lucide-react';
 
 export const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isProfileComplete, loading } = useAuth();
+  const { user, isProfileComplete, isAdmin, loading } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -20,7 +20,7 @@ export const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children 
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (!isProfileComplete && location.pathname !== '/complete-profile') {
+  if (!isAdmin && !isProfileComplete && location.pathname !== '/complete-profile') {
     return <Navigate to="/complete-profile" replace />;
   }
 
