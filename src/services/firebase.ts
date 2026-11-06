@@ -16,6 +16,8 @@ import {
   signOut,
   User,
   getIdTokenResult,
+  linkWithCredential,
+  EmailAuthProvider,
 } from 'firebase/auth';
 
 const env = (import.meta as any).env || {};
@@ -107,6 +109,10 @@ export async function ensureAnonymousAuth(): Promise<User | null> {
 export async function signInWithGoogle(): Promise<User | null> {
   if (!auth) return null;
   try {
+    // If the browser holds an anonymous session, sign it out cleanly so Google auth attaches to real account
+    if (auth.currentUser && auth.currentUser.isAnonymous) {
+      await signOut(auth);
+    }
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     const cred = await signInWithPopup(auth, provider);
@@ -123,6 +129,10 @@ export async function signInWithGoogle(): Promise<User | null> {
 export async function signInWithEmail(email: string, pass: string): Promise<User | null> {
   if (!auth) return null;
   try {
+    // If the browser holds an anonymous session, sign it out cleanly first
+    if (auth.currentUser && auth.currentUser.isAnonymous) {
+      await signOut(auth);
+    }
     const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
     return cred.user;
   } catch (err) {
@@ -137,15 +147,34 @@ export async function signInWithEmail(email: string, pass: string): Promise<User
 export async function registerWithEmail(email: string, pass: string): Promise<User | null> {
   if (!auth) return null;
   try {
-    const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
-    if (cred.user) {
+    let user: User | null = null;
+
+    // If an anonymous session exists (e.g. from previously answering a study on this browser),
+    // attempt to link it so responses stay associated, or cleanly create a new registered account.
+    if (auth.currentUser && auth.currentUser.isAnonymous) {
       try {
-        await sendEmailVerification(cred.user);
+        const credential = EmailAuthProvider.credential(email.trim(), pass);
+        const linked = await linkWithCredential(auth.currentUser, credential);
+        user = linked.user;
+      } catch (linkErr: any) {
+        // If linking fails (e.g. email in use or not allowed), sign out anonymous and create cleanly
+        await signOut(auth);
+        const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
+        user = cred.user;
+      }
+    } else {
+      const cred = await createUserWithEmailAndPassword(auth, email.trim(), pass);
+      user = cred.user;
+    }
+
+    if (user) {
+      try {
+        await sendEmailVerification(user);
       } catch (e) {
         console.warn('Email verification send warning:', e);
       }
     }
-    return cred.user;
+    return user;
   } catch (err) {
     console.warn('Email registration error:', err);
     throw err;

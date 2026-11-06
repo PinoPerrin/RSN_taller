@@ -378,7 +378,6 @@ export const storageAdapter = {
 
     let unsubFirestore: (() => void) | null = null;
     if (isFirebaseConfigured && db) {
-      ensureAnonymousAuth().catch(() => {});
       const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
       unsubFirestore = onSnapshot(
         q,
@@ -434,7 +433,6 @@ export const storageAdapter = {
 
     if (isFirebaseConfigured && db) {
       try {
-        await ensureAnonymousAuth();
         // Try by direct doc ID
         const directRef = doc(db, 'projects', idOrPublicId);
         const directSnap = await withTimeout(getDoc(directRef));
@@ -488,7 +486,6 @@ export const storageAdapter = {
     // 2. Persist to Cloud Firestore
     if (isFirebaseConfigured && db) {
       try {
-        await ensureAnonymousAuth();
         await withTimeout(setDoc(doc(db, 'projects', project.id), projectToSave, { merge: true }));
       } catch (err) {
         console.warn('Firestore saveProject error, saved locally:', err);
@@ -519,7 +516,6 @@ export const storageAdapter = {
     // 3. Delete from Cloud Firestore
     if (isFirebaseConfigured && db) {
       try {
-        await ensureAnonymousAuth();
         await withTimeout(deleteDoc(doc(db, 'projects', projectId)));
 
         // Clean up subcollection stimuli if any
@@ -554,7 +550,6 @@ export const storageAdapter = {
     // 2. Persist to Cloud Firestore with setDoc merge: true so it works even if newly initialized
     if (isFirebaseConfigured && db) {
       try {
-        await ensureAnonymousAuth();
         const payload = fullProject ? { ...fullProject, status, updatedAt } : { id: projectId, status, updatedAt };
         await withTimeout(setDoc(doc(db, 'projects', projectId), payload, { merge: true }));
       } catch (err) {
@@ -576,7 +571,6 @@ export const storageAdapter = {
     // 2. Delete from Cloud Firestore
     if (isFirebaseConfigured && db && pId) {
       try {
-        await ensureAnonymousAuth();
         await withTimeout(deleteDoc(doc(db, `projects/${pId}/stimuli`, stimulusId)));
       } catch (err) {
         console.warn('Firestore deleteStimulus error:', err);
@@ -606,7 +600,6 @@ export const storageAdapter = {
     // Persist/fetch from Cloud Firestore
     if (isFirebaseConfigured && db) {
       try {
-        await ensureAnonymousAuth();
         let list: Stimulus[] = [];
         try {
           const q = query(collection(db, `projects/${pId}/stimuli`), orderBy('order', 'asc'));
@@ -679,7 +672,6 @@ export const storageAdapter = {
 
     let unsubFirestore: (() => void) | null = null;
     if (isFirebaseConfigured && db) {
-      ensureAnonymousAuth().catch(() => {});
       const colRef = collection(db, `projects/${pId}/stimuli`);
       unsubFirestore = onSnapshot(
         colRef,
@@ -1030,7 +1022,6 @@ export const storageAdapter = {
 
     if (isFirebaseConfigured && db && pId) {
       try {
-        await ensureAnonymousAuth();
         const updatePayload: Record<string, any> = {};
         if (flags.excludedByAdmin !== undefined) {
           updatePayload['flags.excludedByAdmin'] = flags.excludedByAdmin;
@@ -1123,7 +1114,6 @@ export const storageAdapter = {
 
       if (isFirebaseConfigured && db && pId) {
         try {
-          await ensureAnonymousAuth();
           const [sessSnap, respSnap] = await Promise.all([
             withTimeout(getDocs(collection(db, `projects/${pId}/sessions`))),
             withTimeout(getDocs(collection(db, `projects/${pId}/responses`))),
@@ -1190,7 +1180,6 @@ export const storageAdapter = {
     // 1. Delete from Firestore if configured
     if (isFirebaseConfigured && db && pId) {
       try {
-        await ensureAnonymousAuth();
         // Delete the session document
         await withTimeout(deleteDoc(doc(db, `projects/${pId}/sessions`, sessionId))).catch(err => {
           console.warn('Firestore deleteSession doc error:', err);
@@ -1229,7 +1218,6 @@ export const storageAdapter = {
     // 1. Check Firestore if configured
     if (isFirebaseConfigured && db && pId) {
       try {
-        await ensureAnonymousAuth();
         const sessSnap = await withTimeout(getDocs(collection(db, `projects/${pId}/sessions`)));
         const respSnap = await withTimeout(getDocs(collection(db, `projects/${pId}/responses`)));
 
@@ -1356,7 +1344,6 @@ export const storageAdapter = {
     const pId = projectId || INITIAL_PROJECT.id;
     if (isFirebaseConfigured && db && pId) {
       try {
-        await ensureAnonymousAuth();
         await withTimeout(
           setDoc(doc(db, `projects/${pId}/interpretations`, 'current'), interpretation)
         );
@@ -1371,7 +1358,6 @@ export const storageAdapter = {
     const pId = projectId || INITIAL_PROJECT.id;
     if (isFirebaseConfigured && db && pId) {
       try {
-        await ensureAnonymousAuth();
         const snap = await withTimeout(getDoc(doc(db, `projects/${pId}/interpretations`, 'current')));
         if (snap.exists()) {
           return snap.data() as SemanticInterpretationData;

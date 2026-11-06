@@ -3,13 +3,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
+    // Helper functions for distinct auth tiers
     function isAuthenticated() {
       return request.auth != null && request.auth.uid != null;
     }
 
     function isAnonymous() {
       return isAuthenticated() && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    function isRegisteredUser() {
+      return isAuthenticated() && !isAnonymous();
     }
 
     function isAdmin() {
@@ -24,11 +28,11 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == uid;
     }
 
-    // 1. User Profiles
+    // 1. User Profiles (Strictly for registered users with Google or Email/Password)
     match /userProfiles/{uid} {
-      allow read: if isOwner(uid) || isAdmin();
-      allow create: if isOwner(uid) && request.resource.data.role == 'registered_user';
-      allow update: if (isOwner(uid) &&
+      allow read: if (isOwner(uid) && isRegisteredUser()) || isAdmin();
+      allow create: if isOwner(uid) && isRegisteredUser() && request.resource.data.role == 'registered_user';
+      allow update: if ((isOwner(uid) && isRegisteredUser()) &&
         request.resource.data.role == resource.data.role &&
         request.resource.data.status == resource.data.status) || isAdmin();
       allow delete: if isAdmin();
@@ -42,65 +46,65 @@ service cloud.firestore {
 
     // 3. Projects Collection
     match /projects/{projectId} {
-      // Allow read if admin, project owner, or if public/workshop study is published
+      // Allow read if admin, project owner, or if public/workshop study is published (for anonymous participants)
       allow read: if isAdmin() ||
-        (isAuthenticated() && resource.data.ownerUid == request.auth.uid) ||
+        (isRegisteredUser() && resource.data.ownerUid == request.auth.uid) ||
         resource.data.status == 'published' ||
         projectId == 'proj-taller-rsn';
 
-      // Creation allowed for authenticated non-anonymous users with matching ownerUid, or admin
-      allow create: if (isAuthenticated() && !isAnonymous() && request.resource.data.ownerUid == request.auth.uid) || isAdmin();
+      // Creation allowed strictly for registered users with matching ownerUid, or admin
+      allow create: if (isRegisteredUser() && request.resource.data.ownerUid == request.auth.uid) || isAdmin();
 
       // Updates and deletion restricted to owner or admin
       allow update, delete: if isAdmin() ||
-        (isAuthenticated() && resource.data.ownerUid == request.auth.uid);
+        (isRegisteredUser() && resource.data.ownerUid == request.auth.uid);
 
-      // Stimuli Subcollection
+      // Stimuli Subcollection (Public read so participants can render words, write by project owner/admin)
       match /stimuli/{stimulusId} {
         allow read: if true;
         allow write: if isAdmin() ||
-          (isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
+          (isRegisteredUser() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
       }
 
       // Normalization Rules Subcollection
       match /normalization_rules/{ruleId} {
         allow read, write: if isAdmin() ||
-          (isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
+          (isRegisteredUser() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
       }
 
       // Semantic Interpretations Subcollection
       match /interpretations/{docId} {
         allow read, write: if isAdmin() ||
-          (isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
+          (isRegisteredUser() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
       }
 
       // Sessions Subcollection
       match /sessions/{sessionId} {
         allow read: if isAdmin() ||
-          (isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid) ||
+          (isRegisteredUser() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid) ||
           (isAuthenticated() && resource.data.authUid == request.auth.uid);
         allow create: if isAuthenticated();
         allow update: if isAdmin() ||
-          (isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid) ||
+          (isRegisteredUser() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid) ||
           (isAuthenticated() && resource.data.authUid == request.auth.uid);
         allow delete: if isAdmin() ||
-          (isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
+          (isRegisteredUser() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
       }
 
-      // Responses Subcollection (Maximum participant privacy)
+      // Responses Subcollection (Maximum participant privacy: anonymous can submit, but cannot read others)
       match /responses/{responseId} {
         allow create: if isAuthenticated();
         allow read: if isAdmin() ||
-          (isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
+          (isRegisteredUser() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
         allow update, delete: if isAdmin() ||
-          (isAuthenticated() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
+          (isRegisteredUser() && get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid);
       }
     }
 
     // 4. Feedback and Support Tickets
     match /feedback/{feedbackId} {
-      allow create: if isAuthenticated() && !isAnonymous() && request.resource.data.uid == request.auth.uid;
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow create: if isRegisteredUser() && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdmin() || (isRegisteredUser() && resource.data.uid == request.auth.uid);
       allow update, delete: if isAdmin();
     }
 
